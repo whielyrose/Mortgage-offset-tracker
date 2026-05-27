@@ -177,6 +177,20 @@ html,body{min-height:100%;background:var(--bg);color:var(--text);font-family:-ap
 .expand-all-bar button:hover{background:var(--surface3);color:var(--text)}
 .h-search{flex:1;min-width:140px;padding:5px 10px;border-radius:20px;border:1px solid var(--border2);background:var(--surface2);font-size:12px;color:var(--text);outline:none}
 .h-search:focus{border-color:var(--green-mid)}
+/* Reconcile page */
+.rc-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px}
+@media(max-width:500px){.rc-summary{grid-template-columns:1fr 1fr}}
+.rc-delta-pos{color:var(--green-mid);font-weight:600}
+.rc-delta-neg{color:var(--red);font-weight:600}
+.rc-day-bar-wrap{width:100%;background:var(--surface3);border-radius:4px;height:6px;margin-top:4px;overflow:hidden}
+.rc-day-bar{height:100%;border-radius:4px;background:var(--green-mid)}
+.rc-day-bar.est{background:var(--blue)}
+.rc-section-head{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);padding:8px 0 4px;border-bottom:1px solid var(--border);margin-bottom:6px}
+.rc-pill{display:inline-block;font-size:11px;padding:1px 7px;border-radius:10px;font-weight:500;margin-left:5px}
+.rc-pill-match{background:var(--green-light);color:var(--green)}
+.rc-pill-over{background:var(--red-light);color:var(--red)}
+.rc-pill-under{background:var(--amber-light);color:var(--amber)}
+
 </style>
 </head>
 <body>
@@ -198,6 +212,7 @@ html,body{min-height:100%;background:var(--bg);color:var(--text);font-family:-ap
   <button class="nav-tab" onclick="showPage('log')">Daily Log</button>
   <button class="nav-tab" onclick="showPage('schedule')">Schedule</button>
   <button class="nav-tab" onclick="showPage('history')">History</button>
+  <button class="nav-tab" onclick="showPage('reconcile')">Reconcile</button>
 </div>
 
 <!-- DASHBOARD -->
@@ -335,6 +350,43 @@ html,body{min-height:100%;background:var(--bg);color:var(--text);font-family:-ap
   </div>
 </div>
 
+<!-- RECONCILE -->
+<div class="page" id="page-reconcile">
+  <div class="card">
+    <div class="card-title"><span>🧾</span> Monthly interest reconciliation</div>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:14px">
+      Enter your actual Beyond Bank interest charges to compare against what the tracker calculates.
+      The tracker uses your logged offset balances to reconstruct the daily accrual for each month.
+    </p>
+    <div class="g3" style="margin-bottom:12px">
+      <div class="field">
+        <label>Month</label>
+        <input type="month" id="rc-month">
+      </div>
+      <div class="field">
+        <label>Actual charge from statement ($)</label>
+        <input type="number" id="rc-actual" step="0.01" min="0" placeholder="e.g. 1508.36">
+      </div>
+      <div class="field">
+        <label>Charge date (end of month)</label>
+        <input type="date" id="rc-date">
+      </div>
+    </div>
+    <div class="field" style="margin-bottom:12px">
+      <label>Note (optional)</label>
+      <input type="text" id="rc-note" placeholder="e.g. April statement">
+    </div>
+    <button class="btn primary" onclick="addReconcileEntry()">Add &amp; analyse</button>
+  </div>
+
+  <div id="rc-analysis"></div>
+
+  <div class="card" id="rc-history-card" style="display:none">
+    <div class="card-title"><span>📋</span> Statement history</div>
+    <div id="rc-history-table"></div>
+  </div>
+</div>
+
 </div><!-- /app -->
 
 <div class="toast" id="toast"></div>
@@ -360,7 +412,7 @@ const API = {
         await fetch('/api/data',{
           method:'POST',
           headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({settings,log:logEntries})
+          body:JSON.stringify({settings,log:logEntries,reconcile:reconcileEntries})
         });
       }catch(e){ console.warn('API save failed',e); }
     }, 600);
@@ -395,12 +447,13 @@ function showPage(id){
   document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
   document.getElementById('page-'+id).classList.add('active');
   const tabs=[...document.querySelectorAll('.nav-tab')];
-  const names=['dashboard','settings','log','schedule','history'];
+  const names=['dashboard','settings','log','schedule','history','reconcile'];
   const i=names.indexOf(id);
   if(i>=0) tabs[i].classList.add('active');
   if(id==='dashboard') recalc();
   if(id==='schedule') renderSchedule();
   if(id==='history') renderHistory();
+  if(id==='reconcile') renderReconcilePage();
 }
 
 /* ─── Helpers ─── */
@@ -1212,9 +1265,270 @@ function histJump(q){
   }
 }
 
+
+/* ─── Reconcile page ─── */
+let reconcileEntries = []; // stored separately, loaded/saved with main data
+
+function renderReconcilePage(){
+  // Set month input default to last month
+  const now = new Date();
+  const lastMonth = new Date(now.getFullYear(), now.getMonth()-1, 1);
+  const lm = `${lastMonth.getFullYear()}-${String(lastMonth.getMonth()+1).padStart(2,'0')}`;
+  const el = document.getElementById('rc-month');
+  if(el && !el.value) el.value = lm;
+  // Default charge date to last day of last month
+  const lastDay = new Date(now.getFullYear(), now.getMonth(), 0);
+  const eld = document.getElementById('rc-date');
+  if(eld && !eld.value) eld.value = lastDay.toISOString().slice(0,10);
+  renderReconcileHistory();
+}
+
+// ── Core: calculate tracker's estimate for a given month using logged offset history ──
+function calcMonthEstimate(yearNum, monthNum){
+  // yearNum=2026, monthNum=4 (April, 0-indexed: 3)
+  const rate = getEffectiveRate() / 100;
+  const dailyRate = rate / 365;
+  const daysInMonth = new Date(yearNum, monthNum+1, 0).getDate();
+
+  // Build a daily offset total for each day of the month
+  // Use logged offset entries — for each day, find the most recent log entry
+  // per account up to and including that day
+  const accountNames = (settings.offsets||[]).map(o=>o.name);
+
+  // Get all offset log entries sorted ascending
+  const offsetLogs = logEntries
+    .filter(e=>e.type==='offset')
+    .sort((a,b)=>a.date.localeCompare(b.date));
+
+  // Get rate changes
+  const rateLogs = logEntries
+    .filter(e=>e.type==='rate')
+    .sort((a,b)=>a.date.localeCompare(b.date));
+
+  // Get extra payments and repayments that affect balance
+  const paymentLogs = logEntries
+    .filter(e=>e.type==='repayment'||e.type==='extra')
+    .sort((a,b)=>a.date.localeCompare(b.date));
+
+  // Starting balance for this month: settings.balance minus any payments logged BEFORE this month
+  const monthStart = `${yearNum}-${String(monthNum+1).padStart(2,'0')}-01`;
+  let runningBalance = parseFloat(settings.balance)||0;
+  paymentLogs.forEach(p=>{
+    if(p.date < monthStart) runningBalance = Math.max(0, runningBalance - parseFloat(p.amount||0));
+  });
+
+  // Daily breakdown
+  const days = [];
+  let totalInterest = 0;
+  let totalAccruedBeforeToday = 0;
+  const todayStr = new Date().toISOString().slice(0,10);
+
+  for(let d=1; d<=daysInMonth; d++){
+    const dateStr = `${yearNum}-${String(monthNum+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+
+    // Effective rate on this day
+    let dayRate = rate;
+    rateLogs.forEach(r=>{ if(r.date<=dateStr) dayRate=parseFloat(r.rate)/100; });
+
+    // Apply any payments on this day
+    paymentLogs.forEach(p=>{
+      if(p.date===dateStr) runningBalance=Math.max(0,runningBalance-parseFloat(p.amount||0));
+    });
+
+    // Offset total for this day: latest log entry per account up to this date
+    const latestPerAccount = {};
+    // Start with base settings
+    (settings.offsets||[]).forEach(o=>{ latestPerAccount[o.name]=o.balance; });
+    // Override with logged values up to this date
+    offsetLogs.forEach(e=>{
+      if(e.date<=dateStr) latestPerAccount[e.account]=parseFloat(e.balance)||0;
+    });
+    const totalOffset = Object.values(latestPerAccount).reduce((a,b)=>a+b,0);
+    const effBal = Math.max(0, runningBalance - totalOffset);
+    const dayInterest = effBal * (dayRate/365);
+    totalInterest += dayInterest;
+
+    const isPast = dateStr <= todayStr;
+    if(isPast) totalAccruedBeforeToday += dayInterest;
+
+    days.push({
+      day:d, date:dateStr, balance:runningBalance, totalOffset, effBal,
+      dayInterest, runningTotal:totalInterest, isPast,
+      hasLog: offsetLogs.some(e=>e.date===dateStr)
+    });
+  }
+
+  return { days, totalInterest, totalAccruedBeforeToday, daysInMonth,
+           rate, dailyRate:rate/365, runningBalance };
+}
+
+function addReconcileEntry(){
+  const monthVal = document.getElementById('rc-month')?.value;
+  const actual   = parseFloat(document.getElementById('rc-actual')?.value);
+  const chargeDate = document.getElementById('rc-date')?.value;
+  const note     = document.getElementById('rc-note')?.value||'';
+
+  if(!monthVal){ toast('Please select a month'); return; }
+  if(isNaN(actual)||actual<=0){ toast('Please enter the actual charge'); return; }
+
+  const [yearNum, monthNum0] = monthVal.split('-').map(Number);
+  const monthNum = monthNum0 - 1; // 0-indexed
+
+  // Remove existing entry for same month if any
+  reconcileEntries = reconcileEntries.filter(e=>e.month!==monthVal);
+  reconcileEntries.push({ id:Date.now(), month:monthVal, actual, chargeDate, note,
+    year:yearNum, monthIndex:monthNum });
+  reconcileEntries.sort((a,b)=>b.month.localeCompare(a.month));
+  API.save();
+
+  renderReconcileAnalysis(yearNum, monthNum, actual, monthVal);
+  renderReconcileHistory();
+  toast('Entry saved ✓');
+}
+
+function renderReconcileAnalysis(yearNum, monthNum, actual, monthVal){
+  const result = calcMonthEstimate(yearNum, monthNum);
+  const { days, totalInterest, daysInMonth } = result;
+  const estimated = totalInterest;
+  const delta = actual - estimated;
+  const deltaPct = estimated > 0 ? (delta/estimated*100) : 0;
+  const monthName = new Date(yearNum, monthNum, 1).toLocaleDateString('en-AU',{month:'long',year:'numeric'});
+
+  // Pill class
+  const absDelta = Math.abs(delta);
+  const pillClass = absDelta < 1 ? 'rc-pill-match' : delta > 0 ? 'rc-pill-over' : 'rc-pill-under';
+  const pillText  = absDelta < 1 ? 'Match ✓' : delta > 0 ? `Bank +${fmt(absDelta)}` : `Bank -${fmt(absDelta)}`;
+
+  // How many days have offset logs
+  const loggedDays = days.filter(d=>d.hasLog).length;
+
+  // Daily breakdown HTML — show all days
+  const maxInt = Math.max(...days.map(d=>d.dayInterest));
+  const dailyRows = days.map(d=>{
+    const barPct = maxInt>0 ? (d.dayInterest/maxInt*100).toFixed(1) : 0;
+    const pastStyle = !d.isPast ? 'opacity:0.5' : '';
+    return `<tr style="${pastStyle}">
+      <td style="text-align:left;padding:3px 8px;font-size:12px;color:var(--muted)">${d.day} ${new Date(d.date+'T00:00:00').toLocaleDateString('en-AU',{weekday:'short'})}</td>
+      <td style="padding:3px 8px;text-align:right;font-size:12px">${fmtS(d.effBal)}</td>
+      <td style="padding:3px 8px;text-align:right;font-size:12px">${fmtS(d.totalOffset)}</td>
+      <td style="padding:3px 8px;text-align:right;font-size:12px">${fmt(d.dayInterest)}</td>
+      <td style="padding:3px 8px;text-align:right;font-size:12px;color:var(--muted)">${fmt(d.runningTotal)}</td>
+      <td style="padding:3px 8px;width:80px">
+        <div class="rc-day-bar-wrap"><div class="rc-day-bar" style="width:${barPct}%"></div></div>
+      </td>
+    </tr>`;
+  }).join('');
+
+  // Explain the gap
+  const logCoverage = loggedDays > 0
+    ? `${loggedDays} of ${daysInMonth} days have logged offset balances.`
+    : `No offset balance logs for this month — tracker used your base settings balance for all ${daysInMonth} days.`;
+
+  const gapExplanation = absDelta < 1
+    ? `<span style="color:var(--green-mid)">✓ Excellent match — the tracker's calculation aligns with your statement.</span>`
+    : delta > 0
+      ? `The bank charged <strong>${fmt(absDelta)} more</strong> than estimated. Your actual average offset balance was lower during ${monthName} than the tracker assumed (${loggedDays===0?'no daily logs recorded':'gaps in daily logs'}). Log your offset balances more frequently to improve accuracy.`
+      : `The bank charged <strong>${fmt(absDelta)} less</strong> than estimated. Your actual average offset balance was higher during ${monthName} than assumed. This is good — more offset = less interest.`;
+
+  document.getElementById('rc-analysis').innerHTML = `
+    <div class="card">
+      <div class="card-title"><span>🔍</span> Analysis — ${monthName} <span class="rc-pill ${pillClass}">${pillText}</span></div>
+
+      <div class="rc-summary">
+        <div class="metric">
+          <div class="m-lbl">Bank charged</div>
+          <div class="m-val">${fmt(actual)}</div>
+          <div class="m-sub">From your statement</div>
+        </div>
+        <div class="metric">
+          <div class="m-lbl">Tracker estimate</div>
+          <div class="m-val">${fmt(estimated)}</div>
+          <div class="m-sub">${loggedDays} days logged</div>
+        </div>
+        <div class="metric ${absDelta<1?'green':delta>0?'red':'amber'}">
+          <div class="m-lbl">Difference</div>
+          <div class="m-val">${delta>=0?'+':''}${fmt(delta)}</div>
+          <div class="m-sub">${deltaPct>=0?'+':''}${deltaPct.toFixed(1)}%</div>
+        </div>
+      </div>
+
+      <div style="background:var(--surface2);border-radius:var(--radius);padding:12px;margin-bottom:14px;font-size:13px;line-height:1.6">
+        ${gapExplanation}
+        <br><span style="font-size:12px;color:var(--muted)">${logCoverage} The tracker interpolates between logged entries for unlogged days.</span>
+      </div>
+
+      <details>
+        <summary style="cursor:pointer;font-size:13px;font-weight:500;color:var(--text);padding:6px 0;user-select:none">
+          Daily breakdown (${daysInMonth} days)
+        </summary>
+        <div style="overflow-x:auto;margin-top:8px">
+          <table style="width:100%;border-collapse:collapse;min-width:420px">
+            <thead>
+              <tr style="background:var(--surface3)">
+                <th style="text-align:left;padding:5px 8px;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase">Day</th>
+                <th style="padding:5px 8px;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;text-align:right">Eff. Balance</th>
+                <th style="padding:5px 8px;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;text-align:right">Offset</th>
+                <th style="padding:5px 8px;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;text-align:right">Interest</th>
+                <th style="padding:5px 8px;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;text-align:right">Running total</th>
+                <th style="padding:5px 8px;width:80px"></th>
+              </tr>
+            </thead>
+            <tbody>${dailyRows}</tbody>
+            <tfoot>
+              <tr style="background:var(--surface3);font-weight:600">
+                <td style="padding:6px 8px;font-size:13px">Total</td>
+                <td></td><td></td>
+                <td style="padding:6px 8px;text-align:right;color:var(--red)">${fmt(estimated)}</td>
+                <td style="padding:6px 8px;text-align:right">${fmt(estimated)}</td>
+                <td></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </details>
+    </div>`;
+}
+
+function renderReconcileHistory(){
+  const card = document.getElementById('rc-history-card');
+  if(!reconcileEntries.length){ card.style.display='none'; return; }
+  card.style.display='';
+  const rows = reconcileEntries.map(e=>{
+    const result = calcMonthEstimate(e.year, e.monthIndex);
+    const est = result.totalInterest;
+    const delta = e.actual - est;
+    const absDelta = Math.abs(delta);
+    const pillClass = absDelta<1?'rc-pill-match':delta>0?'rc-pill-over':'rc-pill-under';
+    const pillText  = absDelta<1?'Match ✓':delta>0?`+${fmt(absDelta)}`:`-${fmt(absDelta)}`;
+    const mName = new Date(e.year, e.monthIndex, 1).toLocaleDateString('en-AU',{month:'short',year:'numeric'});
+    return `<tr>
+      <td style="text-align:left">${mName}</td>
+      <td>${fmt(e.actual)}</td>
+      <td>${fmt(est)}</td>
+      <td><span class="rc-pill ${pillClass}">${pillText}</span></td>
+      <td style="color:var(--muted);font-size:12px">${e.note||''}</td>
+      <td><button class="btn icon-only small" onclick="deleteReconcileEntry(${e.id})">✕</button></td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('rc-history-table').innerHTML=`
+    <table class="tbl">
+      <thead><tr><th>Month</th><th>Actual</th><th>Estimated</th><th>Difference</th><th>Note</th><th style="width:36px"></th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+function deleteReconcileEntry(id){
+  reconcileEntries = reconcileEntries.filter(e=>e.id!==id);
+  API.save();
+  renderReconcileHistory();
+  document.getElementById('rc-analysis').innerHTML='';
+  toast('Entry removed');
+}
+
 /* ─── Data export / import ─── */
 function exportData(){
-  const data={settings,log:logEntries,exported:new Date().toISOString()};
+  const data={settings,log:logEntries,reconcile:reconcileEntries,exported:new Date().toISOString()};
   const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
   const a=document.createElement('a');
   a.href=URL.createObjectURL(blob);
@@ -1229,8 +1543,9 @@ function importData(input){
   reader.onload=e=>{
     try{
       const data=JSON.parse(e.target.result);
-      if(data.settings) settings=data.settings;
-      if(data.log) logEntries=data.log;
+      if(data.settings)   settings=data.settings;
+      if(data.log)        logEntries=data.log;
+      if(data.reconcile)  reconcileEntries=data.reconcile||[];
       API.save();
       loadSettingsForm();
       renderLogList();
@@ -1272,8 +1587,9 @@ async function init(){
   el.innerHTML = '<div style="padding:40px;text-align:center;color:var(--muted)">⏳ Loading data from server…</div>';
   const data = await API.load();
   if(data){
-    if(data.settings) settings = {...defaultSettings, ...data.settings};
-    if(data.log)      logEntries = data.log;
+    if(data.settings)   settings          = {...defaultSettings, ...data.settings};
+    if(data.log)        logEntries        = data.log;
+    if(data.reconcile)  reconcileEntries  = data.reconcile;
   }
   // Restore dashboard
   el.innerHTML = `

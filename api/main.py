@@ -19,7 +19,7 @@ DATA_FILE = os.environ.get("DATA_FILE", "/data/mortgage-tracker.json")
 
 def read_data() -> dict:
     if not os.path.exists(DATA_FILE):
-        return {"settings": None, "log": []}
+        return {"settings": None, "log": [], "reconcile": []}
     with open(DATA_FILE, "r") as f:
         return json.load(f)
 
@@ -33,6 +33,7 @@ def write_data(data: dict):
 class SavePayload(BaseModel):
     settings: Any = None
     log: list = []
+    reconcile: list = []
 
 
 @app.get("/api/data")
@@ -43,7 +44,7 @@ def get_data():
 @app.post("/api/data")
 def save_data(payload: SavePayload):
     try:
-        write_data({"settings": payload.settings, "log": payload.log})
+        write_data({"settings": payload.settings, "log": payload.log, "reconcile": payload.reconcile})
         return {"ok": True}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

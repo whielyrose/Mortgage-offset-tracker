@@ -8,7 +8,7 @@
     "dry-run": "DRY_RUN=true node sync.js"
   },
   "dependencies": {
-    "@actual-app/api": "^25.0.0"
+    "@actual-app/api": "latest"
   },
   "engines": {
     "node": ">=18"

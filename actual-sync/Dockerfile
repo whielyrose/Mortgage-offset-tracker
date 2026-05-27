@@ -14,4 +14,5 @@ COPY sync.js .
 # Cache directory for Actual Budget data
 RUN mkdir -p /tmp/actual-cache
 
-CMD ["node", "sync.js"]
+# Clear cache on every run to avoid stale migration state
+CMD ["sh", "-c", "rm -rf /tmp/actual-cache/* && node sync.js"]

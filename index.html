@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Mortgage Tracker">
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.svg">
-<title>Beyond Bank — Mortgage Tracker</title>
+<title>Offset Mortgage Tracker</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -200,7 +200,7 @@ html,body{min-height:100%;background:var(--bg);color:var(--text);font-family:-ap
   <div class="topbar-icon">🏦</div>
   <div>
     <div class="topbar-title">Mortgage Tracker</div>
-    <div class="topbar-sub">Beyond Bank offset calculator</div>
+    <div class="topbar-sub">Offset mortgage calculator</div>
   </div>
   <div class="topbar-space"></div>
   <button class="install-btn" id="installBtn" onclick="installPWA()">⬇ Install App</button>
@@ -281,7 +281,7 @@ html,body{min-height:100%;background:var(--bg);color:var(--text);font-family:-ap
           <label>Actual minimum (from your lender)</label>
           <input type="number" id="s-actualMin" step="0.01" min="0" placeholder="e.g. 1067.11"
             oninput="saveSetting('actualMin',this.value);recalc()">
-          <div class="hint">Enter what Beyond Bank actually says your minimum is. Lenders set this at each review, not from current balance.</div>
+          <div class="hint">Enter what your lender actually says your minimum is. Lenders set this at each review, not from the current balance.</div>
         </div>
         <div class="field">
           <label>Tracker's calculated minimum <span style="font-weight:400;font-size:11px">(reference only)</span></label>
@@ -367,7 +367,7 @@ html,body{min-height:100%;background:var(--bg);color:var(--text);font-family:-ap
   <div class="card">
     <div class="card-title"><span>🧾</span> Monthly interest reconciliation</div>
     <p style="font-size:13px;color:var(--muted);margin-bottom:14px">
-      Enter your actual Beyond Bank interest charges to compare against what the tracker calculates.
+      Enter your actual lender interest charges to compare against what the tracker calculates.
       The tracker uses your logged offset balances to reconstruct the daily accrual for each month.
     </p>
     <div class="g3" style="margin-bottom:12px">
@@ -633,7 +633,7 @@ function renderLogForm(){
       <div class="field"><label>Effective date</label><input type="date" id="lf-date" value="${today()}"></div>
       <div class="field"><label>New interest rate (%)</label><input type="number" id="lf-rate" step="0.01" min="0" placeholder="e.g. 6.34"></div>
     </div>
-    <div class="field" style="margin-top:8px"><label>Note (optional)</label><input type="text" id="lf-note" placeholder="e.g. RBA rate rise"></div>`;
+    <div class="field" style="margin-top:8px"><label>Note (optional)</label><input type="text" id="lf-note" placeholder="e.g. lender rate change"></div>`;
   } else if(currentLogType==='extra'){
     f.innerHTML=`<div class="g2">
       <div class="field"><label>Date</label><input type="date" id="lf-date" value="${today()}"></div>

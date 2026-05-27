@@ -1,0 +1,1256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0f6e56">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Mortgage Tracker">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.svg">
+<title>Beyond Bank — Mortgage Tracker</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#f5f6f7;--surface:#ffffff;--surface2:#f0f1f3;--surface3:#e8e9ec;
+  --border:rgba(0,0,0,0.08);--border2:rgba(0,0,0,0.14);
+  --text:#1a1b1e;--muted:#6b7280;--subtle:#9ca3af;
+  --green:#0f6e56;--green-light:#e1f5ee;--green-mid:#1D9E75;
+  --blue:#185fa5;--blue-light:#e6f1fb;
+  --red:#a32d2d;--red-light:#fcebeb;
+  --amber:#854f0b;--amber-light:#faeeda;
+  --radius:8px;--radius-lg:12px;--radius-xl:16px;
+}
+@media(prefers-color-scheme:dark){:root{
+  --bg:#0e0f11;--surface:#16181c;--surface2:#1e2026;--surface3:#252830;
+  --border:rgba(255,255,255,0.08);--border2:rgba(255,255,255,0.14);
+  --text:#f0f1f3;--muted:#9ca3af;--subtle:#4b5563;
+  --green:#2dd4a0;--green-light:rgba(29,158,117,0.15);--green-mid:#1D9E75;
+  --blue:#4f9eff;--blue-light:rgba(79,158,255,0.12);
+  --red:#ff8080;--red-light:rgba(255,107,107,0.12);
+  --amber:#fbbf24;--amber-light:rgba(251,191,36,0.12);
+}}
+
+html,body{min-height:100%;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;line-height:1.5}
+
+/* Layout */
+.app{max-width:900px;margin:0 auto;padding:0 0 80px}
+.topbar{background:var(--surface);border-bottom:1px solid var(--border);padding:12px 20px;display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:50}
+.topbar-icon{width:32px;height:32px;background:var(--green-light);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:17px}
+.topbar-title{font-size:15px;font-weight:600;color:var(--text)}
+.topbar-sub{font-size:12px;color:var(--muted)}
+.topbar-space{flex:1}
+.install-btn{display:none;align-items:center;gap:6px;font-size:12px;background:var(--green-light);color:var(--green);border:1px solid rgba(15,110,86,0.2);border-radius:20px;padding:5px 12px;cursor:pointer;font-weight:500}
+.install-btn:hover{opacity:0.85}
+#installBtn{display:none}
+
+/* Nav tabs */
+.nav{display:flex;background:var(--surface);border-bottom:1px solid var(--border);overflow-x:auto;scrollbar-width:none}
+.nav::-webkit-scrollbar{display:none}
+.nav-tab{flex:none;padding:10px 18px;font-size:13px;font-weight:500;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap;transition:all .15s;background:none;border-top:none;border-left:none;border-right:none}
+.nav-tab:hover{color:var(--text)}
+.nav-tab.active{color:var(--green);border-bottom-color:var(--green)}
+
+/* Sections */
+.page{display:none;padding:16px}
+.page.active{display:block}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px;margin-bottom:14px}
+.card-title{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:14px;display:flex;align-items:center;gap:7px}
+.card-title span{font-size:15px}
+
+/* Grid */
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+.g4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+@media(max-width:600px){.g2,.g3{grid-template-columns:1fr 1fr}.g4{grid-template-columns:1fr 1fr}}
+@media(max-width:400px){.g2,.g3,.g4{grid-template-columns:1fr}}
+
+/* Fields */
+.field{display:flex;flex-direction:column;gap:4px}
+.field label{font-size:12px;color:var(--muted);font-weight:500}
+.field input,.field select,.field textarea{background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius);color:var(--text);font-size:13px;padding:8px 10px;outline:none;transition:border-color .15s,box-shadow .15s;width:100%;font-family:inherit}
+.field input:focus,.field select:focus{border-color:var(--green-mid);box-shadow:0 0 0 3px rgba(29,158,117,0.15)}
+.field select{cursor:pointer}
+.field .hint{font-size:11px;color:var(--muted);margin-top:2px}
+.field .hint.warn{color:var(--red)}
+.field .hint.ok{color:var(--green-mid)}
+
+/* Metrics */
+.metric{background:var(--surface2);border-radius:var(--radius);padding:12px 14px}
+.metric .m-lbl{font-size:11px;color:var(--muted);font-weight:500;text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px}
+.metric .m-val{font-size:19px;font-weight:600;color:var(--text);line-height:1.1}
+.metric .m-sub{font-size:11px;color:var(--muted);margin-top:3px}
+.metric.green .m-val{color:var(--green)}
+.metric.blue .m-val{color:var(--blue)}
+.metric.red .m-val{color:var(--red)}
+.metric.amber .m-val{color:var(--amber)}
+
+/* Buttons */
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:var(--radius);font-size:13px;font-weight:500;cursor:pointer;transition:all .15s;border:1px solid var(--border2);background:var(--surface2);color:var(--text)}
+.btn:hover{background:var(--surface3)}
+.btn.primary{background:var(--green-mid);color:#fff;border-color:var(--green-mid)}
+.btn.primary:hover{opacity:.9}
+.btn.danger{background:var(--red-light);color:var(--red);border-color:rgba(163,45,45,0.2)}
+.btn.small{padding:5px 10px;font-size:12px}
+.btn.icon-only{padding:6px;border:none;background:none;color:var(--muted)}
+.btn.icon-only:hover{color:var(--text);background:var(--surface2)}
+
+/* Offset rows */
+.offset-row{display:grid;grid-template-columns:1fr 130px 36px;gap:8px;align-items:center;margin-bottom:8px}
+.offset-row input{width:100%}
+
+/* Table */
+.tbl{width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed}
+.tbl th{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);padding:6px 10px;border-bottom:1px solid var(--border);text-align:right}
+.tbl th:first-child{text-align:left}
+.tbl td{padding:7px 10px;border-bottom:1px solid var(--border);text-align:right;color:var(--text)}
+.tbl td:first-child{text-align:left;color:var(--muted)}
+.tbl tr:last-child td{border-bottom:none}
+.tbl tr:hover td{background:var(--surface2)}
+.tbl .pos{color:var(--green-mid);font-weight:500}
+.tbl .neg{color:var(--red);font-weight:500}
+
+/* Log entry form */
+.log-form{background:var(--green-light);border:1px solid rgba(29,158,117,0.2);border-radius:var(--radius-lg);padding:16px;margin-bottom:14px}
+.log-type-tabs{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap}
+.log-type-btn{padding:5px 12px;border-radius:20px;font-size:12px;font-weight:500;cursor:pointer;border:1px solid var(--border2);background:var(--surface);color:var(--muted);transition:all .15s}
+.log-type-btn.active{background:var(--green-mid);color:#fff;border-color:var(--green-mid)}
+
+/* Chart */
+.chart-wrap{position:relative;width:100%}
+
+/* Saving bar */
+.save-bar{height:8px;border-radius:4px;background:var(--surface3);overflow:hidden;margin:6px 0}
+.save-fill{height:100%;border-radius:4px;background:var(--green-mid);transition:width .4s}
+
+/* Info rows */
+.info-row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px}
+.info-row:last-child{border-bottom:none}
+.info-row .lbl{color:var(--muted)}
+.info-row .val{font-weight:500}
+
+/* Date badge */
+.date-badge{display:inline-block;background:var(--blue-light);color:var(--blue);border-radius:4px;font-size:11px;font-weight:500;padding:2px 7px}
+
+/* Toast */
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--text);color:var(--bg);padding:10px 20px;border-radius:20px;font-size:13px;font-weight:500;z-index:200;opacity:0;transition:opacity .25s;pointer-events:none}
+.toast.show{opacity:1}
+
+/* Empty state */
+.empty{text-align:center;padding:40px 20px;color:var(--muted);font-size:13px}
+.empty .empty-icon{font-size:32px;margin-bottom:10px;opacity:.4}
+
+/* Schedule next badge */
+.next-pmt{background:var(--amber-light);color:var(--amber);border-radius:var(--radius);padding:10px 14px;font-size:13px;font-weight:500;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+
+/* Collapsible history tree */
+.h-tree{width:100%;border-collapse:collapse;font-size:13px}
+.h-tree td,.h-tree th{padding:0;border:none}
+.h-row{display:flex;align-items:center;width:100%;gap:0;border-bottom:1px solid var(--border);transition:background .1s;cursor:default}
+.h-row:last-child{border-bottom:none}
+.h-row.clickable{cursor:pointer}
+.h-row.clickable:hover{background:var(--surface2)}
+.h-row.year-row{background:var(--surface2);font-weight:600;font-size:13px}
+.h-row.year-row:hover{background:var(--surface3)}
+.h-row.month-row{background:var(--surface);font-size:12px;padding-left:20px}
+.h-row.month-row:hover{background:var(--surface2)}
+.h-row.payment-row{background:var(--surface);font-size:12px;padding-left:44px;opacity:0.9}
+.h-row.payment-row:hover{background:var(--surface2)}
+.h-row.total-row{background:var(--surface3);font-weight:600;font-size:13px;border-top:2px solid var(--border2)}
+.h-cell{padding:7px 10px;flex:1;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.h-cell:first-child{text-align:left;flex:2;min-width:0}
+.h-cell.neg{color:var(--red);font-weight:500}
+.h-cell.pos{color:var(--green-mid);font-weight:500}
+.h-cell.muted{color:var(--muted)}
+.h-toggle{width:20px;min-width:20px;text-align:center;font-size:10px;color:var(--muted);padding:7px 4px;transition:transform .2s;display:inline-block}
+.h-toggle.open{transform:rotate(90deg)}
+.h-children{display:none}
+.h-children.open{display:block}
+.h-head{display:flex;align-items:center;width:100%;background:var(--surface3);border-bottom:1px solid var(--border2)}
+.h-head .h-cell{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);padding:5px 10px}
+.payoff-row{background:rgba(29,158,117,0.08)!important}
+.payoff-badge{font-size:10px;background:var(--green-light);color:var(--green);border-radius:4px;padding:1px 5px;margin-left:5px;font-weight:600}
+.expand-all-bar{display:flex;gap:8px;margin-bottom:10px;align-items:center;flex-wrap:wrap}
+.expand-all-bar button{font-size:12px;padding:4px 10px;border-radius:20px;border:1px solid var(--border2);background:var(--surface2);color:var(--muted);cursor:pointer}
+.expand-all-bar button:hover{background:var(--surface3);color:var(--text)}
+.h-search{flex:1;min-width:140px;padding:5px 10px;border-radius:20px;border:1px solid var(--border2);background:var(--surface2);font-size:12px;color:var(--text);outline:none}
+.h-search:focus{border-color:var(--green-mid)}
+</style>
+</head>
+<body>
+<div class="app">
+
+<div class="topbar">
+  <div class="topbar-icon">🏦</div>
+  <div>
+    <div class="topbar-title">Mortgage Tracker</div>
+    <div class="topbar-sub">Beyond Bank offset calculator</div>
+  </div>
+  <div class="topbar-space"></div>
+  <button class="install-btn" id="installBtn" onclick="installPWA()">⬇ Install App</button>
+</div>
+
+<div class="nav">
+  <button class="nav-tab active" onclick="showPage('dashboard')">Dashboard</button>
+  <button class="nav-tab" onclick="showPage('settings')">Mortgage Setup</button>
+  <button class="nav-tab" onclick="showPage('log')">Daily Log</button>
+  <button class="nav-tab" onclick="showPage('schedule')">Schedule</button>
+  <button class="nav-tab" onclick="showPage('history')">History</button>
+</div>
+
+<!-- DASHBOARD -->
+<div class="page active" id="page-dashboard">
+  <div class="card">
+    <div class="card-title"><span>📊</span> Today's snapshot</div>
+    <div id="dash-metrics" class="g4" style="margin-bottom:14px"></div>
+    <div id="next-pmt-banner"></div>
+  </div>
+  <div class="card">
+    <div class="card-title"><span>📈</span> Balance over time</div>
+    <div style="display:flex;flex-wrap:wrap;gap:14px;margin-bottom:12px;font-size:12px;color:var(--muted)">
+      <span style="display:flex;align-items:center;gap:5px"><span style="width:16px;height:2px;background:#1D9E75;display:inline-block"></span>Actual / projected</span>
+      <span style="display:flex;align-items:center;gap:5px"><span style="width:16px;height:2px;background:#185fa5;display:inline-block;border-top:2px dashed #185fa5;height:0"></span>No-offset projection</span>
+    </div>
+    <div class="chart-wrap" style="height:220px"><canvas id="balChart" role="img" aria-label="Loan balance over time">Balance chart.</canvas></div>
+  </div>
+  <div class="card">
+    <div class="card-title"><span>💸</span> Daily interest this month</div>
+    <div class="chart-wrap" style="height:160px"><canvas id="dailyChart" role="img" aria-label="Daily interest accrual">Daily interest.</canvas></div>
+    <div id="month-summary" style="margin-top:10px;font-size:12px;color:var(--muted)"></div>
+  </div>
+</div>
+
+<!-- SETTINGS -->
+<div class="page" id="page-settings">
+  <div class="card">
+    <div class="card-title"><span>🏠</span> Loan details</div>
+    <div class="g2" style="margin-bottom:12px">
+      <div class="field"><label>Original loan amount ($)</label><input type="number" id="s-loanAmount" value="550000" min="1" oninput="saveSetting('loanAmount',this.value);recalc()"></div>
+      <div class="field"><label>Current outstanding balance ($)</label><input type="number" id="s-balance" value="520000" min="1" oninput="saveSetting('balance',this.value);recalc()"></div>
+    </div>
+    <div class="g3">
+      <div class="field"><label>Annual interest rate (%)</label><input type="number" id="s-rate" value="6.09" step="0.01" min="0.01" oninput="saveSetting('rate',this.value);recalc()"></div>
+      <div class="field"><label>Loan term (years)</label><input type="number" id="s-termYears" value="30" min="1" max="40" oninput="saveSetting('termYears',this.value);recalc()"></div>
+      <div class="field"><label>Loan start date</label><input type="date" id="s-startDate" value="2022-07-01" oninput="saveSetting('startDate',this.value);recalc()"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title"><span>💳</span> Repayment schedule</div>
+    <div class="g3" style="margin-bottom:12px">
+      <div class="field">
+        <label>Repayment amount ($)</label>
+        <input type="number" id="s-repayment" value="1100" min="1" step="50" oninput="saveSetting('repayment',this.value);recalc()">
+      </div>
+      <div class="field">
+        <label>Frequency</label>
+        <select id="s-freq" onchange="saveSetting('freq',this.value);updateRepayDay();recalc()">
+          <option value="26">Fortnightly</option>
+          <option value="12">Monthly</option>
+          <option value="52">Weekly</option>
+          <option value="4">Quarterly</option>
+        </select>
+      </div>
+      <div class="field" id="repay-day-field">
+        <label id="repay-day-label">Most recent payment date</label>
+        <input type="date" id="s-lastPayDate" oninput="saveSetting('lastPayDate',this.value);recalc()">
+        <div class="hint" id="repay-day-hint">Next payment date is calculated from this anchor + your frequency interval.</div>
+      </div>
+    </div>
+    <div id="s-pmt-hint" class="field"><div class="hint"></div></div>
+    <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
+      <div class="field"><label>Auto-calculated minimum repayment</label><input type="text" id="s-minPmt" readonly style="background:var(--surface3);color:var(--muted)"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title"><span>🏦</span> Offset accounts</div>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:12px">Set your base account balances here. Use the Daily Log to record actual day-to-day changes.</p>
+    <div id="offsetRows"></div>
+    <button class="btn small" onclick="addOffset()" style="margin-top:4px">+ Add account</button>
+  </div>
+
+  <div class="card">
+    <div class="card-title"><span>💾</span> Data management</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn small" onclick="exportData()">⬇ Export data (JSON)</button>
+      <button class="btn small" onclick="document.getElementById('importFile').click()">⬆ Import data</button>
+      <button class="btn small danger" onclick="confirmClearData()">🗑 Clear all data</button>
+    </div>
+    <input type="file" id="importFile" accept=".json" style="display:none" onchange="importData(this)">
+  </div>
+</div>
+
+<!-- DAILY LOG -->
+<div class="page" id="page-log">
+  <div class="log-form">
+    <div class="card-title" style="margin-bottom:10px"><span>➕</span> Add entry</div>
+    <div class="log-type-tabs" id="logTypeTabs">
+      <button class="log-type-btn active" onclick="setLogType('offset')" id="lt-offset">📊 Offset balance</button>
+      <button class="log-type-btn" onclick="setLogType('repayment')" id="lt-repayment">💳 Repayment</button>
+      <button class="log-type-btn" onclick="setLogType('rate')" id="lt-rate">📈 Rate change</button>
+      <button class="log-type-btn" onclick="setLogType('extra')" id="lt-extra">💰 Extra payment</button>
+    </div>
+    <div id="logFormFields"></div>
+    <div style="margin-top:10px">
+      <button class="btn primary" onclick="addLogEntry()">Save entry</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title"><span>📋</span> Log entries <span id="log-count" style="font-size:12px;color:var(--muted);font-weight:400;margin-left:4px"></span></div>
+    <div id="logList"></div>
+  </div>
+</div>
+
+<!-- SCHEDULE -->
+<div class="page" id="page-schedule">
+  <div class="card">
+    <div class="card-title"><span>📅</span> Repayment schedule</div>
+    <div id="schedule-info" style="margin-bottom:14px"></div>
+    <div id="schedule-table"></div>
+  </div>
+  <div class="card">
+    <div class="card-title"><span>📊</span> Amortisation summary</div>
+    <p id="amort-note" style="font-size:13px;color:var(--muted);margin-bottom:12px"></p>
+    <div id="amortTable"></div>
+  </div>
+  <div class="card">
+    <div class="card-title"><span>✨</span> Offset savings</div>
+    <div id="savingContent"></div>
+  </div>
+</div>
+
+<!-- HISTORY -->
+<div class="page" id="page-history">
+  <div class="card">
+    <div class="card-title"><span>📉</span> Interest vs principal — year by year (full term)</div>
+    <div class="chart-wrap" style="height:260px"><canvas id="histChart" role="img" aria-label="Yearly interest vs principal breakdown">History chart.</canvas></div>
+  </div>
+  <div class="card">
+    <div class="card-title"><span>🗓</span> Monthly summary</div>
+    <div id="histTable"></div>
+  </div>
+</div>
+
+</div><!-- /app -->
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ─── Storage ─── */
+const DB = {
+  get(k,def=null){ try{ const v=localStorage.getItem('mgt_'+k); return v===null?def:JSON.parse(v) }catch{return def} },
+  set(k,v){ try{ localStorage.setItem('mgt_'+k,JSON.stringify(v)) }catch{} },
+  del(k){ localStorage.removeItem('mgt_'+k) }
+};
+
+/* ─── State ─── */
+let settings = DB.get('settings',{
+  loanAmount:550000, balance:520000, rate:6.09, termYears:30,
+  startDate:'2022-07-01', repayment:1100, freq:26, lastPayDate:'2026-05-27',
+  offsets:[
+    {name:'Everyday account',balance:12000},
+    {name:'Savings account',balance:35000},
+    {name:'Offset account 3',balance:8000}
+  ]
+});
+let logEntries = DB.get('log', []);
+let currentLogType = 'offset';
+let balChartInst = null, dailyChartInst = null, histChartInst = null;
+
+function saveSetting(k,v){
+  const num=['loanAmount','balance','rate','termYears','repayment'];
+  settings[k] = num.includes(k) ? (parseFloat(v)||0) : v;
+  DB.set('settings', settings);
+}
+
+/* ─── Nav ─── */
+function showPage(id){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
+  document.getElementById('page-'+id).classList.add('active');
+  const tabs=[...document.querySelectorAll('.nav-tab')];
+  const names=['dashboard','settings','log','schedule','history'];
+  const i=names.indexOf(id);
+  if(i>=0) tabs[i].classList.add('active');
+  if(id==='dashboard') recalc();
+  if(id==='schedule') renderSchedule();
+  if(id==='history') renderHistory();
+}
+
+/* ─── Helpers ─── */
+const fmt = n => isNaN(n)?'—':n.toLocaleString('en-AU',{style:'currency',currency:'AUD',minimumFractionDigits:2,maximumFractionDigits:2});
+const fmtS = n => isNaN(n)||!isFinite(n)?'—':n.toLocaleString('en-AU',{style:'currency',currency:'AUD',minimumFractionDigits:0,maximumFractionDigits:0});
+const fmtY = (periods,freq) => { if(!periods||!isFinite(periods)) return '—'; const y=Math.floor(periods/freq),m=Math.round((periods/freq-y)*12); return m===0?`${y}y`:`${y}y ${m}m`; };
+const freqName = f => ({26:'fortnight',12:'month',52:'week',4:'quarter'})[f]||'period';
+const freqLabel = f => ({26:'Fortnightly',12:'Monthly',52:'Weekly',4:'Quarterly'})[f]||'';
+const today = () => new Date().toISOString().slice(0,10);
+
+function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2500); }
+
+/* ─── Effective offset (latest log entry per account + base) ─── */
+function getEffectiveOffsets(){
+  // Get latest offset log entry (if any) — use that over base settings
+  const offsetLogs = logEntries.filter(e=>e.type==='offset').sort((a,b)=>b.date.localeCompare(a.date));
+  const latest = {};
+  offsetLogs.forEach(e=>{ if(!latest[e.account]) latest[e.account]=e; });
+  // Start from base settings offsets
+  const base = (settings.offsets||[]).map(o=>({name:o.name,balance:o.balance}));
+  // Override with logged values
+  base.forEach(o=>{ if(latest[o.name]) o.balance = parseFloat(latest[o.name].balance)||0; });
+  return base;
+}
+
+function getTotalOffset(){ return getEffectiveOffsets().reduce((a,o)=>a+o.balance,0); }
+
+/* ─── Effective rate (check for rate change log entries) ─── */
+function getEffectiveRate(){
+  const rateLogs = logEntries.filter(e=>e.type==='rate').sort((a,b)=>b.date.localeCompare(a.date));
+  return rateLogs.length ? parseFloat(rateLogs[0].rate)||settings.rate : settings.rate;
+}
+
+/* ─── Extra payments total this month ─── */
+function getExtraThisMonth(){
+  const now = new Date();
+  const ym = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  return logEntries.filter(e=>e.type==='extra'&&e.date.startsWith(ym)).reduce((a,e)=>a+parseFloat(e.amount||0),0);
+}
+
+/* ─── Balance with logged repayments & extras applied ─── */
+function getAdjustedBalance(){
+  let bal = settings.balance;
+  const rate = getEffectiveRate() / 100;
+  // Apply each logged repayment and extra in order
+  const payments = logEntries
+    .filter(e=>e.type==='repayment'||e.type==='extra')
+    .sort((a,b)=>a.date.localeCompare(b.date));
+  payments.forEach(e=>{
+    const amt = parseFloat(e.amount||0);
+    if(e.type==='repayment'||e.type==='extra') bal = Math.max(0, bal - amt);
+  });
+  return Math.max(0, bal);
+}
+
+/* ─── Core schedule engine ─── */
+function minRepayment(balance, annRate, termYears, freq){
+  const r = annRate/freq;
+  const n = termYears*freq;
+  if(r===0) return balance/n;
+  return balance*r*Math.pow(1+r,n)/(Math.pow(1+r,n)-1);
+}
+
+function runSchedule(balance, annualRate, pmt, freq, totalOffset){
+  const r = annualRate/freq;
+  let bal = balance;
+  const bals=[bal];
+  let n=0, cumInt=0;
+  const MAX=freq*55;
+  while(bal>0.01&&n<MAX){
+    const effBal=Math.max(0,bal-totalOffset);
+    const interest=effBal*r;
+    cumInt+=interest;
+    const principal=Math.min(pmt-interest,bal);
+    if(principal<=0){n=MAX;break;}
+    bal=Math.max(0,bal-principal);
+    n++;
+    bals.push(Math.round(bal*100)/100);
+  }
+  return{n,bals,cumInt,done:n<MAX};
+}
+
+/* ─── Next repayment date — anchored from last actual payment ─── */
+function advanceDate(d, freq){
+  const freq_=parseInt(freq);
+  if(freq_===12){ return new Date(d.getFullYear(), d.getMonth()+1, d.getDate()); }
+  if(freq_===4){  return new Date(d.getFullYear(), d.getMonth()+3, d.getDate()); }
+  if(freq_===52){ const n=new Date(d); n.setDate(n.getDate()+7); return n; }
+  // fortnightly (26)
+  const n=new Date(d); n.setDate(n.getDate()+14); return n;
+}
+
+function nextRepaymentDate(){
+  const freq=parseInt(settings.freq);
+  const lastPay = settings.lastPayDate ? new Date(settings.lastPayDate+'T00:00:00') : null;
+  const now = new Date(); now.setHours(0,0,0,0);
+  if(!lastPay){
+    // Fallback: next occurrence of today + one interval
+    return advanceDate(now, freq);
+  }
+  // Walk forward from lastPay until we find the first future date
+  let d = new Date(lastPay);
+  while(d <= now) d = advanceDate(d, freq);
+  return d;
+}
+
+function daysUntil(d){ return Math.ceil((d-new Date())/(1000*60*60*24)); }
+
+/* ─── updateRepayDay — now just loads lastPayDate into the date input ─── */
+function updateRepayDay(){
+  const el=document.getElementById('s-lastPayDate');
+  if(el && settings.lastPayDate) el.value=settings.lastPayDate;
+}
+
+/* ─── Offset account UI ─── */
+function renderOffsets(){
+  document.getElementById('offsetRows').innerHTML=(settings.offsets||[]).map((o,i)=>`
+    <div class="offset-row">
+      <input type="text" value="${o.name}" placeholder="Account name" oninput="settings.offsets[${i}].name=this.value;DB.set('settings',settings)">
+      <input type="number" value="${o.balance}" min="0" placeholder="Balance" oninput="settings.offsets[${i}].balance=parseFloat(this.value)||0;DB.set('settings',settings);recalc()">
+      <button class="btn icon-only" onclick="removeOffset(${i})" aria-label="Remove">✕</button>
+    </div>`).join('');
+}
+function addOffset(){ if(!settings.offsets) settings.offsets=[]; settings.offsets.push({name:'New account',balance:0}); DB.set('settings',settings); renderOffsets(); }
+function removeOffset(i){ settings.offsets.splice(i,1); DB.set('settings',settings); renderOffsets(); recalc(); }
+
+/* ─── Load settings into form ─── */
+function loadSettingsForm(){
+  ['loanAmount','balance','rate','termYears','startDate','repayment'].forEach(k=>{
+    const el=document.getElementById('s-'+k);
+    if(el) el.value=settings[k]??'';
+  });
+  document.getElementById('s-freq').value=settings.freq||26;
+  updateRepayDay();
+  renderOffsets();
+}
+
+/* ─── Log type form ─── */
+function setLogType(t){
+  currentLogType=t;
+  document.querySelectorAll('.log-type-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('lt-'+t).classList.add('active');
+  renderLogForm();
+}
+
+function renderLogForm(){
+  const f=document.getElementById('logFormFields');
+  const offNames=(settings.offsets||[]).map(o=>`<option>${o.name}</option>`).join('');
+  if(currentLogType==='offset'){
+    f.innerHTML=`<div class="g3">
+      <div class="field"><label>Date</label><input type="date" id="lf-date" value="${today()}"></div>
+      <div class="field"><label>Account</label><select id="lf-account">${offNames}</select></div>
+      <div class="field"><label>New balance ($)</label><input type="number" id="lf-balance" min="0" placeholder="e.g. 14500"></div>
+    </div>
+    <div class="field" style="margin-top:8px"><label>Note (optional)</label><input type="text" id="lf-note" placeholder="e.g. payroll deposit"></div>`;
+  } else if(currentLogType==='repayment'){
+    f.innerHTML=`<div class="g3">
+      <div class="field"><label>Date</label><input type="date" id="lf-date" value="${today()}"></div>
+      <div class="field"><label>Amount paid ($)</label><input type="number" id="lf-amount" min="0" value="${settings.repayment||0}"></div>
+      <div class="field"><label>Type</label><select id="lf-subtype"><option value="scheduled">Scheduled</option><option value="extra">Extra</option></select></div>
+    </div>
+    <div class="field" style="margin-top:8px"><label>Note (optional)</label><input type="text" id="lf-note" placeholder="e.g. regular fortnightly payment"></div>`;
+  } else if(currentLogType==='rate'){
+    f.innerHTML=`<div class="g2">
+      <div class="field"><label>Effective date</label><input type="date" id="lf-date" value="${today()}"></div>
+      <div class="field"><label>New interest rate (%)</label><input type="number" id="lf-rate" step="0.01" min="0" placeholder="e.g. 6.34"></div>
+    </div>
+    <div class="field" style="margin-top:8px"><label>Note (optional)</label><input type="text" id="lf-note" placeholder="e.g. RBA rate rise"></div>`;
+  } else if(currentLogType==='extra'){
+    f.innerHTML=`<div class="g2">
+      <div class="field"><label>Date</label><input type="date" id="lf-date" value="${today()}"></div>
+      <div class="field"><label>Extra payment ($)</label><input type="number" id="lf-amount" min="0" placeholder="e.g. 5000"></div>
+    </div>
+    <div class="field" style="margin-top:8px"><label>Note (optional)</label><input type="text" id="lf-note" placeholder="e.g. tax return lump sum"></div>`;
+  }
+}
+
+function addLogEntry(){
+  const date=document.getElementById('lf-date')?.value;
+  if(!date){toast('Please select a date');return;}
+  const note=document.getElementById('lf-note')?.value||'';
+  let entry={id:Date.now(),type:currentLogType,date,note};
+  if(currentLogType==='offset'){
+    const account=document.getElementById('lf-account')?.value;
+    const balance=parseFloat(document.getElementById('lf-balance')?.value);
+    if(!account||isNaN(balance)){toast('Please fill all fields');return;}
+    entry={...entry,account,balance};
+  } else if(currentLogType==='repayment'){
+    const amount=parseFloat(document.getElementById('lf-amount')?.value);
+    const subtype=document.getElementById('lf-subtype')?.value;
+    if(isNaN(amount)||amount<=0){toast('Please enter an amount');return;}
+    entry={...entry,amount,subtype};
+  } else if(currentLogType==='rate'){
+    const rate=parseFloat(document.getElementById('lf-rate')?.value);
+    if(isNaN(rate)||rate<=0){toast('Please enter a rate');return;}
+    entry={...entry,rate};
+    settings.rate=rate; saveSetting('rate',rate);
+    document.getElementById('s-rate').value=rate;
+  } else if(currentLogType==='extra'){
+    const amount=parseFloat(document.getElementById('lf-amount')?.value);
+    if(isNaN(amount)||amount<=0){toast('Please enter an amount');return;}
+    entry={...entry,amount};
+  }
+  logEntries.unshift(entry);
+  DB.set('log',logEntries);
+  renderLogForm();
+  renderLogList();
+  recalc();
+  toast('Entry saved ✓');
+}
+
+function deleteLogEntry(id){
+  logEntries=logEntries.filter(e=>e.id!==id);
+  DB.set('log',logEntries);
+  renderLogList();
+  recalc();
+  toast('Entry removed');
+}
+
+function renderLogList(){
+  const el=document.getElementById('logList');
+  document.getElementById('log-count').textContent=`(${logEntries.length})`;
+  if(!logEntries.length){el.innerHTML='<div class="empty"><div class="empty-icon">📋</div>No entries yet. Add your first entry above.</div>';return;}
+  const icons={offset:'📊',repayment:'💳',rate:'📈',extra:'💰'};
+  const sorted=[...logEntries].sort((a,b)=>b.date.localeCompare(a.date));
+  el.innerHTML=`<table class="tbl"><thead><tr><th>Date</th><th>Type</th><th>Detail</th><th>Note</th><th style="width:36px"></th></tr></thead><tbody>${
+    sorted.map(e=>{
+      let detail='';
+      if(e.type==='offset') detail=`${e.account}: ${fmtS(e.balance)}`;
+      else if(e.type==='repayment') detail=`${fmt(e.amount)} (${e.subtype||'scheduled'})`;
+      else if(e.type==='rate') detail=`${e.rate}% p.a.`;
+      else if(e.type==='extra') detail=`${fmt(e.amount)} lump sum`;
+      return `<tr>
+        <td><span class="date-badge">${e.date}</span></td>
+        <td>${icons[e.type]||''} ${e.type}</td>
+        <td>${detail}</td>
+        <td style="color:var(--muted)">${e.note||''}</td>
+        <td><button class="btn icon-only small" onclick="deleteLogEntry(${e.id})" aria-label="Delete">✕</button></td>
+      </tr>`;
+    }).join('')
+  }</tbody></table>`;
+}
+
+/* ─── Dashboard recalc ─── */
+function recalc(){
+  const rate=getEffectiveRate()/100;
+  const balance=getAdjustedBalance();
+  const freq=parseInt(settings.freq);
+  const pmt=parseFloat(settings.repayment)||0;
+  const totalOffset=getTotalOffset();
+  const effBal=Math.max(0,balance-totalOffset);
+  const dailyRate=rate/365;
+  const dailyInt=effBal*dailyRate;
+  const minPmt=minRepayment(balance,rate,settings.termYears,freq);
+  document.getElementById('s-minPmt').value=fmt(minPmt);
+
+  const hintEl=document.querySelector('#s-pmt-hint .hint');
+  if(hintEl){
+    const diff=pmt-minPmt;
+    if(pmt<minPmt*0.999){hintEl.className='hint warn';hintEl.textContent=`⚠ ${fmt(minPmt-pmt)} below minimum — loan won't be paid off.`;}
+    else if(diff>0.5){hintEl.className='hint ok';hintEl.textContent=`Paying ${fmt(diff)} extra per ${freqName(freq)} — accelerating payoff.`;}
+    else{hintEl.className='hint';hintEl.textContent='Paying at minimum repayment level.';}
+  }
+
+  const withOff=runSchedule(balance,rate,pmt,freq,totalOffset);
+  const without=runSchedule(balance,rate,pmt,freq,0);
+  const intSaved=Math.max(0,without.cumInt-withOff.cumInt);
+  const timeSaved=Math.max(0,without.n-withOff.n);
+
+  // Next payment
+  const nxt=nextRepaymentDate();
+  const daysLeft=daysUntil(nxt);
+  const nxtStr=nxt.toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short'});
+  const banner=document.getElementById('next-pmt-banner');
+  if(banner) banner.innerHTML=`<div class="next-pmt">⏰ Next ${freqLabel(freq).toLowerCase()} repayment of <strong>${fmt(pmt)}</strong> is due <strong>${nxtStr}</strong> — ${daysLeft} day${daysLeft!==1?'s':''} away</div>`;
+
+  const metrics=document.getElementById('dash-metrics');
+  if(metrics) metrics.innerHTML=`
+    <div class="metric"><div class="m-lbl">Outstanding balance</div><div class="m-val">${fmtS(balance)}</div><div class="m-sub">${fmtS(totalOffset)} offset applied</div></div>
+    <div class="metric blue"><div class="m-lbl">Daily interest</div><div class="m-val">${fmt(dailyInt)}</div><div class="m-sub">on ${fmtS(effBal)} effective</div></div>
+    <div class="metric"><div class="m-lbl">Payoff time</div><div class="m-val">${withOff.done?fmtY(withOff.n,freq):'50y+'}</div><div class="m-sub">with current offsets</div></div>
+    <div class="metric green"><div class="m-lbl">Offset saving</div><div class="m-val">${fmtS(intSaved)}</div><div class="m-sub">${timeSaved>0?fmtY(timeSaved,freq)+' sooner':''}</div></div>
+  `;
+
+  renderBalanceChart(balance,rate,pmt,freq,totalOffset);
+  renderDailyChart(effBal,rate);
+}
+
+function renderBalanceChart(balance,rate,pmt,freq,totalOffset){
+  const withOff=runSchedule(balance,rate,pmt,freq,totalOffset);
+  const without=runSchedule(balance,rate,pmt,freq,0);
+  const maxYrs=Math.min(35,Math.ceil(Math.max(withOff.n,without.n)/freq)+1);
+  const curYear=new Date().getFullYear();
+  const labels=[],od=[],wd=[];
+  for(let yr=0;yr<=maxYrs;yr++){
+    labels.push(curYear+yr);
+    od.push(yr*freq<withOff.bals.length?withOff.bals[yr*freq]:0);
+    wd.push(yr*freq<without.bals.length?without.bals[yr*freq]:0);
+  }
+  if(balChartInst) balChartInst.destroy();
+  balChartInst=new Chart(document.getElementById('balChart'),{
+    type:'line',
+    data:{labels,datasets:[
+      {label:'With offset',data:od,borderColor:'#1D9E75',backgroundColor:'rgba(29,158,117,0.08)',borderWidth:2.5,fill:true,tension:0.4,pointRadius:0,pointHoverRadius:4},
+      {label:'No offset',data:wd,borderColor:'#185fa5',borderDash:[6,4],backgroundColor:'transparent',borderWidth:1.5,fill:false,tension:0.4,pointRadius:0,pointHoverRadius:4}
+    ]},
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      interaction:{mode:'index',intersect:false},
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>'  '+c.dataset.label+':  $'+Math.round(c.raw).toLocaleString('en-AU')}}},
+      scales:{
+        x:{grid:{color:'rgba(128,128,128,0.07)'},ticks:{font:{size:10},maxTicksLimit:10,maxRotation:0}},
+        y:{min:0,grid:{color:'rgba(128,128,128,0.07)'},ticks:{font:{size:10},callback:v=>v===0?'$0':'$'+(v/1000)+'k'}}
+      }
+    }
+  });
+}
+
+function renderDailyChart(effBal,rate){
+  const now=new Date();
+  const daysInMonth=new Date(now.getFullYear(),now.getMonth()+1,0).getDate();
+  const dailyRate=rate/365;
+  const labels=[],data=[],colors=[];
+  for(let d=1;d<=daysInMonth;d++){
+    labels.push(d);
+    data.push(parseFloat((effBal*dailyRate).toFixed(4)));
+    colors.push(d<now.getDate()?'#9FE1CB':d===now.getDate()?'#1D9E75':'#C0DD97');
+  }
+  if(dailyChartInst) dailyChartInst.destroy();
+  dailyChartInst=new Chart(document.getElementById('dailyChart'),{
+    type:'bar',
+    data:{labels,datasets:[{label:'Daily interest',data,backgroundColor:colors,borderRadius:2}]},
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>fmt(c.raw)}}},
+      scales:{
+        x:{grid:{display:false},ticks:{font:{size:10},autoSkip:true,maxTicksLimit:15}},
+        y:{grid:{color:'rgba(128,128,128,0.07)'},ticks:{font:{size:10},callback:v=>'$'+parseFloat(v).toFixed(2)}}
+      }
+    }
+  });
+  const total=data.reduce((a,b)=>a+b,0);
+  const sofar=data.slice(0,now.getDate()).reduce((a,b)=>a+b,0);
+  const el=document.getElementById('month-summary');
+  if(el) el.innerHTML=`Month total est: <strong style="color:var(--text)">${fmt(total)}</strong> &nbsp;·&nbsp; Accrued day 1–${now.getDate()}: <strong style="color:var(--text)">${fmt(sofar)}</strong> &nbsp;·&nbsp; Remaining: <strong style="color:var(--text)">${fmt(total-sofar)}</strong>`;
+}
+
+/* ─── Schedule page ─── */
+function renderSchedule(){
+  const rate=getEffectiveRate()/100;
+  const balance=getAdjustedBalance();
+  const freq=parseInt(settings.freq);
+  const pmt=parseFloat(settings.repayment)||0;
+  const totalOffset=getTotalOffset();
+
+  // Info
+  const nxt=nextRepaymentDate();
+  const lastPayStr=settings.lastPayDate
+    ? new Date(settings.lastPayDate+'T00:00:00').toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'long',year:'numeric'})
+    : 'Not set';
+  document.getElementById('schedule-info').innerHTML=`
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="info-row" style="border:none;display:block"><span class="lbl" style="display:block;font-size:11px;margin-bottom:2px">Frequency</span><strong>${freqLabel(freq)}</strong></div>
+      <div class="info-row" style="border:none;display:block"><span class="lbl" style="display:block;font-size:11px;margin-bottom:2px">Repayment per ${freqName(freq)}</span><strong>${fmt(pmt)}</strong></div>
+      <div class="info-row" style="border:none;display:block"><span class="lbl" style="display:block;font-size:11px;margin-bottom:2px">Last payment</span><strong>${lastPayStr}</strong></div>
+      <div class="info-row" style="border:none;display:block"><span class="lbl" style="display:block;font-size:11px;margin-bottom:2px">Next payment</span><strong>${nxt.toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'long'})}</strong></div>
+    </div>`;
+
+  // Generate next 24 periods
+  const periods=[];
+  let bal=balance;
+  let d=new Date(nxt);
+  const r=rate/freq;
+  for(let i=0;i<24&&bal>0.01;i++){
+    const effBal=Math.max(0,bal-totalOffset);
+    const interest=effBal*r;
+    const principal=Math.min(pmt-interest,bal);
+    if(principal<=0) break;
+    bal=Math.max(0,bal-principal);
+    const dateStr=d.toISOString().slice(0,10);
+    const logged=logEntries.find(e=>e.type==='repayment'&&e.date===dateStr);
+    periods.push({date:new Date(d),interest,principal,balance:bal,logged:!!logged,loggedAmt:logged?.amount});
+    d=advanceDate(d,freq);
+  }
+
+  document.getElementById('schedule-table').innerHTML=`
+    <table class="tbl">
+      <thead><tr><th>Date</th><th>Interest</th><th>Principal</th><th>Balance after</th><th>Status</th></tr></thead>
+      <tbody>${periods.map(p=>`<tr>
+        <td><span class="date-badge">${p.date.toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'})}</span></td>
+        <td class="neg">${fmt(p.interest)}</td>
+        <td class="pos">${fmt(p.principal)}</td>
+        <td>${fmtS(p.balance)}</td>
+        <td>${p.logged?`<span style="color:var(--green-mid);font-size:12px">✓ Logged ${fmt(p.loggedAmt)}</span>`:`<span style="color:var(--muted);font-size:12px">Scheduled</span>`}</td>
+      </tr>`).join('')}</tbody>
+    </table>`;
+
+  renderAmort(balance,rate,pmt,freq,totalOffset);
+  renderSaving(balance,rate,pmt,freq,totalOffset);
+}
+
+function renderAmort(balance,rate,pmt,freq,totalOffset){
+  const r=rate/freq;
+  const startYear=new Date(settings.startDate||'2022-01-01').getFullYear();
+  const termYears=parseInt(settings.termYears)||30;
+  const curYear=new Date().getFullYear();
+
+  // ── Projected schedule (with offset, actual payoff) ──
+  let balProj=balance, periodProj=0, cumIntProj=0;
+  const projRows=[];
+  const MAX=termYears*freq;
+  while(balProj>0.01&&periodProj<MAX){
+    let yInt=0,yPrin=0;
+    for(let p=0;p<freq;p++){
+      if(balProj<=0.01)break;
+      const effBal=Math.max(0,balProj-totalOffset);
+      const interest=effBal*r;
+      const principal=Math.min(pmt-interest,balProj);
+      if(principal<=0){balProj=Infinity;break;}
+      yInt+=interest;yPrin+=principal;balProj-=principal;cumIntProj+=interest;periodProj++;
+    }
+    if(!isFinite(balProj))break;
+    projRows.push({year:startYear+Math.floor(periodProj/freq),interest:yInt,principal:yPrin,balance:Math.max(0,balProj),projected:true});
+    if(balProj<=0.01)break;
+  }
+  const projPayoffYear = projRows.length ? projRows[projRows.length-1].year : null;
+  const projYears = projRows.length;
+
+  // ── Full 30-year term schedule (no offset, minimum repayments) ──
+  const minPmt=minRepayment(balance,rate,termYears,freq);
+  let balTerm=balance, periodTerm=0;
+  const termRows=[];
+  while(balTerm>0.01&&periodTerm<termYears*freq){
+    let yInt=0,yPrin=0;
+    for(let p=0;p<freq;p++){
+      if(balTerm<=0.01)break;
+      const interest=balTerm*r;
+      const principal=Math.min(minPmt-interest,balTerm);
+      if(principal<=0){balTerm=Infinity;break;}
+      yInt+=interest;yPrin+=principal;balTerm-=principal;periodTerm++;
+    }
+    if(!isFinite(balTerm))break;
+    termRows.push({year:startYear+Math.floor(periodTerm/freq),interest:yInt,principal:yPrin,balance:Math.max(0,balTerm),projected:false});
+    if(balTerm<=0.01)break;
+  }
+
+  if(!projRows.length){document.getElementById('amortTable').innerHTML='<p style="color:var(--red);font-size:13px">Repayment too low to pay off loan.</p>';return;}
+
+  const totalIntProj=projRows.reduce((a,r)=>a+r.interest,0);
+  const totalIntTerm=termRows.reduce((a,r)=>a+r.interest,0);
+
+  document.getElementById('amort-note').innerHTML=`
+    <span style="color:var(--green-mid)">▶ Projected payoff: <strong>${projPayoffYear}</strong> (${projYears} year${projYears!==1?'s':''} — ${fmtS(totalIntProj)} total interest with current offsets)</span>
+    &nbsp;·&nbsp;
+    <span style="color:var(--muted)">30-yr term ends: <strong>${startYear+termYears}</strong> (${fmtS(totalIntTerm)} total interest at minimum repayments)</span>`;
+
+  // Merge: show every year of the 30-year term, mark which years have already paid off in the projected schedule
+  const projByYear={};
+  projRows.forEach(r=>projByYear[r.year]=r);
+  const termByYear={};
+  termRows.forEach(r=>termByYear[r.year]=r);
+
+  // Build combined table: every year from startYear to startYear+termYears
+  const allYears=[];
+  for(let y=startYear;y<=startYear+termYears;y++) allYears.push(y);
+
+  const rows=allYears.map(y=>{
+    const p=projByYear[y];
+    const t=termByYear[y];
+    const isPast=y<curYear;
+    return{year:y,proj:p,term:t,isPast};
+  }).filter(r=>r.proj||r.term); // skip years before loan started
+
+  document.getElementById('amortTable').innerHTML=`
+    <div style="font-size:12px;color:var(--muted);margin-bottom:10px;display:flex;gap:16px;flex-wrap:wrap">
+      <span style="display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:2px;background:rgba(29,158,117,0.5);display:inline-block"></span>Your repayments + offset</span>
+      <span style="display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:2px;background:rgba(163,45,45,0.25);display:inline-block"></span>30-yr term (min. repayments)</span>
+    </div>
+    <div style="overflow-x:auto">
+    <table class="tbl" style="min-width:560px">
+      <thead><tr>
+        <th>Year</th>
+        <th title="Interest paid under your current repayments with offset">Interest (yours)</th>
+        <th title="Principal paid under your current repayments with offset">Principal (yours)</th>
+        <th title="Remaining balance under your current repayments">Balance (yours)</th>
+        <th title="Remaining balance under minimum repayments / 30-yr term">Balance (30yr term)</th>
+      </tr></thead>
+      <tbody>${rows.map(r=>{
+        const projDone=!r.proj;
+        const termDone=!r.term;
+        return `<tr style="${projDone?'opacity:0.4':''}${r.year===projPayoffYear?';background:rgba(29,158,117,0.08)':''}">
+          <td>
+            ${r.year}
+            ${r.year===projPayoffYear?'<span style="font-size:10px;background:var(--green-light);color:var(--green);border-radius:4px;padding:1px 5px;margin-left:4px">PAID OFF</span>':''}
+            ${r.year===startYear+termYears&&!projDone?'<span style="font-size:10px;background:var(--red-light);color:var(--red);border-radius:4px;padding:1px 5px;margin-left:4px">30yr END</span>':''}
+          </td>
+          <td class="neg">${r.proj?fmt(r.proj.interest):'—'}</td>
+          <td class="pos">${r.proj?fmt(r.proj.principal):'—'}</td>
+          <td>${r.proj?fmtS(r.proj.balance):'<span style="color:var(--green-mid)">✓ $0</span>'}</td>
+          <td style="color:var(--muted)">${r.term?fmtS(r.term.balance):'<span style="color:var(--green-mid)">✓ $0</span>'}</td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table></div>`;
+}
+
+function renderSaving(balance,rate,pmt,freq,totalOffset){
+  const without=runSchedule(balance,rate,pmt,freq,0);
+  const withOff=runSchedule(balance,rate,pmt,freq,totalOffset);
+  const saved=Math.max(0,without.cumInt-withOff.cumInt);
+  const psSaved=Math.max(0,without.n-withOff.n);
+  const pct=without.cumInt>0?(saved/without.cumInt*100):0;
+  document.getElementById('savingContent').innerHTML=`
+    <div style="margin-bottom:14px">
+      <div style="font-size:13px;color:var(--muted);margin-bottom:6px">${fmtS(totalOffset)} in offset accounts saves:</div>
+      <div class="save-bar"><div class="save-fill" style="width:${Math.min(100,pct).toFixed(1)}%"></div></div>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px">${pct.toFixed(1)}% of total interest eliminated</div>
+    </div>
+    <div style="background:var(--surface2);border-radius:var(--radius);padding:14px">
+      <div class="info-row"><span class="lbl">Interest without offset</span><span class="val">${fmt(without.cumInt)}</span></div>
+      <div class="info-row"><span class="lbl">Interest with current offset</span><span class="val" style="color:var(--green-mid)">${fmt(withOff.cumInt)}</span></div>
+      <div class="info-row"><span class="lbl">Total saved</span><span class="val" style="color:var(--green)">${fmt(saved)}</span></div>
+      <div class="info-row"><span class="lbl">Time saved</span><span class="val" style="color:var(--green)">${psSaved>0?fmtY(psSaved,freq):'No difference'}</span></div>
+      <div class="info-row"><span class="lbl">Payoff without offset</span><span class="val">${without.done?fmtY(without.n,freq):'50y+'}</span></div>
+      <div class="info-row"><span class="lbl">Payoff with offset</span><span class="val">${withOff.done?fmtY(withOff.n,freq):'50y+'}</span></div>
+    </div>`;
+}
+
+/* ─── History page — lazy 3-level collapsible tree ─── */
+// Data is built once into histData; DOM rows are only created on first expand.
+let histData = null; // {yearMap, yearKeys, monthMap, payments, totalInt, totalPrin, payoffDate, pmt, curYear}
+
+function buildHistData(){
+  const rate        = getEffectiveRate()/100;
+  const balance     = getAdjustedBalance();
+  const freq        = parseInt(settings.freq);
+  const pmt_        = parseFloat(settings.repayment)||0;
+  const totalOffset = getTotalOffset();
+  const termYears   = parseInt(settings.termYears)||30;
+  const startDate   = new Date((settings.startDate||'2022-01-01')+'T00:00:00');
+  const r           = rate/freq;
+  const lastPay     = settings.lastPayDate ? new Date(settings.lastPayDate+'T00:00:00') : null;
+  const now         = new Date(); now.setHours(0,0,0,0);
+  const curYear     = String(now.getFullYear());
+
+  // Walk lastPay back to before startDate, then step forward to first payment
+  function reverseDate(d){
+    const f=parseInt(freq);
+    if(f===12) return new Date(d.getFullYear(),d.getMonth()-1,d.getDate());
+    if(f===4)  return new Date(d.getFullYear(),d.getMonth()-3,d.getDate());
+    const n=new Date(d); n.setDate(n.getDate()-(f===52?7:14)); return n;
+  }
+  function firstPaymentDate(){
+    if(lastPay){
+      let d=new Date(lastPay);
+      while(d.getTime()>startDate.getTime()) d=reverseDate(d);
+      return advanceDate(d,freq);
+    }
+    return advanceDate(startDate,freq);
+  }
+
+  const payments=[];
+  let bal=balance, d=firstPaymentDate();
+  const maxP=termYears*freq+10;
+  let pn=0;
+  while(bal>0.005&&pn<maxP){
+    const effBal=Math.max(0,bal-totalOffset);
+    const interest=effBal*r;
+    const principal=Math.min(pmt_-interest,bal);
+    if(principal<=0.005) break;
+    bal=Math.max(0,bal-principal);
+    pn++;
+    const ds=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    payments.push({date:new Date(d),payNum:pn,interest,principal,balance:bal,
+      monthKey:ds, yearKey:String(d.getFullYear()),
+      isPast:d<now, isToday:d.toISOString().slice(0,10)===now.toISOString().slice(0,10)});
+    d=advanceDate(d,freq);
+  }
+
+  const monthMap={};
+  payments.forEach(p=>{
+    if(!monthMap[p.monthKey]) monthMap[p.monthKey]={key:p.monthKey,yearKey:p.yearKey,label:'',interest:0,principal:0,balance:0,payments:[],rendered:false};
+    const m=monthMap[p.monthKey];
+    m.interest+=p.interest; m.principal+=p.principal; m.balance=p.balance; m.payments.push(p);
+    m.label=p.date.toLocaleDateString('en-AU',{month:'short',year:'numeric'});
+  });
+
+  const yearMap={};
+  payments.forEach(p=>{
+    if(!yearMap[p.yearKey]) yearMap[p.yearKey]={key:p.yearKey,interest:0,principal:0,balance:0,monthKeys:[],rendered:false};
+    const y=yearMap[p.yearKey];
+    y.interest+=p.interest; y.principal+=p.principal; y.balance=p.balance;
+    if(!y.monthKeys.includes(p.monthKey)) y.monthKeys.push(p.monthKey);
+  });
+
+  return{yearMap,yearKeys:Object.keys(yearMap).sort(),monthMap,payments,
+    totalInt:payments.reduce((a,p)=>a+p.interest,0),
+    totalPrin:payments.reduce((a,p)=>a+p.principal,0),
+    payoffDate:payments.length?payments[payments.length-1].date:null,
+    pmt:pmt_,curYear,freq};
+}
+
+function renderHistory(){
+  histData = buildHistData();
+  const {yearMap,yearKeys,monthMap,payments,totalInt,totalPrin,payoffDate,curYear,freq} = histData;
+
+  if(!payments.length){
+    document.getElementById('histTable').innerHTML='<p style="color:var(--red);padding:20px">No payments to display — check repayment amount.</p>';
+    return;
+  }
+
+  // ── Chart — only yearly totals, fast ──────────────────────────────────────
+  const chartInt  = yearKeys.map(y=>yearMap[y].interest);
+  const chartPrin = yearKeys.map(y=>yearMap[y].principal);
+  if(histChartInst) histChartInst.destroy();
+  histChartInst=new Chart(document.getElementById('histChart'),{
+    type:'bar',
+    data:{labels:yearKeys,datasets:[
+      {label:'Interest', data:chartInt,  backgroundColor:yearKeys.map(y=>parseInt(y)<parseInt(curYear)?'rgba(226,75,74,0.35)':'rgba(226,75,74,0.65)'),borderRadius:2},
+      {label:'Principal',data:chartPrin, backgroundColor:yearKeys.map(y=>parseInt(y)<parseInt(curYear)?'rgba(29,158,117,0.35)':'rgba(29,158,117,0.65)'),borderRadius:2}
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>'  '+c.dataset.label+':  '+fmt(c.raw)}}},
+      scales:{
+        x:{stacked:true,grid:{display:false},ticks:{font:{size:10},maxTicksLimit:16,maxRotation:0}},
+        y:{stacked:true,grid:{color:'rgba(128,128,128,0.07)'},ticks:{font:{size:10},callback:v=>'$'+(v/1000).toFixed(0)+'k'}}
+      }}
+  });
+
+  // ── Render ONLY year rows to DOM ─────────────────────────────────────────
+  const yearRowsHTML = yearKeys.map(yk=>{
+    const y=yearMap[yk];
+    const hasPO=y.balance<0.05;
+    const mCount=y.monthKeys.length;
+    const pCount=y.monthKeys.reduce((a,mk)=>a+monthMap[mk].payments.length,0);
+    const past=parseInt(yk)<parseInt(curYear);
+    return `<div class="h-year-wrap" id="yw_${yk}">
+      <div class="h-row year-row clickable${hasPO?' payoff-row':''}" onclick="toggleYear('${yk}')" style="${past?'opacity:0.75':''}">
+        <span class="h-toggle" id="tgl_y_${yk}">▶</span>
+        <div class="h-cell">${yk}${hasPO?'<span class="payoff-badge">PAID OFF</span>':''}</div>
+        <div class="h-cell neg">${fmt(y.interest)}</div>
+        <div class="h-cell pos">${fmt(y.principal)}</div>
+        <div class="h-cell muted">${mCount} month${mCount!==1?'s':''}, ${pCount} payment${pCount!==1?'s':''}</div>
+        <div class="h-cell">${y.balance<0.05?'<span style="color:var(--green-mid)">✓ $0</span>':fmtS(y.balance)}</div>
+      </div>
+      <div class="h-children" id="yc_${yk}"></div>
+    </div>`;
+  }).join('');
+
+  document.getElementById('histTable').innerHTML=`
+    <div class="expand-all-bar">
+      <button onclick="histExpandYears()">Expand years</button>
+      <button onclick="histCollapseAll()">Collapse all</button>
+      <input class="h-search" id="histSearch" placeholder="Jump to year or month…" oninput="histJump(this.value)">
+      <span style="font-size:12px;color:var(--muted);white-space:nowrap">
+        ${payments.length} payments &nbsp;·&nbsp;
+        Payoff: <strong style="color:var(--green)">${payoffDate?payoffDate.toLocaleDateString('en-AU',{month:'short',year:'numeric'}):'—'}</strong>
+      </span>
+    </div>
+    <div style="display:flex;gap:14px;margin-bottom:8px;font-size:12px;color:var(--muted);flex-wrap:wrap">
+      <span style="display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:2px;background:rgba(226,75,74,0.65);display:inline-block"></span>Interest</span>
+      <span style="display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:2px;background:rgba(29,158,117,0.65);display:inline-block"></span>Principal</span>
+      <span style="margin-left:auto">Total interest: <strong style="color:var(--red)">${fmtS(totalInt)}</strong> &nbsp;·&nbsp; Total principal: <strong>${fmtS(totalPrin)}</strong></span>
+    </div>
+    <div style="overflow-x:auto;border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden">
+      <div style="min-width:520px">
+        <div class="h-head">
+          <div class="h-cell" style="flex:2;padding-left:30px">Year / Month / Payment</div>
+          <div class="h-cell">Interest</div>
+          <div class="h-cell">Principal</div>
+          <div class="h-cell">Count / Payment</div>
+          <div class="h-cell">Balance</div>
+        </div>
+        <div id="histTreeBody">${yearRowsHTML}</div>
+        <div class="h-row total-row">
+          <span class="h-toggle" style="visibility:hidden">▶</span>
+          <div class="h-cell">Total (${yearKeys.length} years)</div>
+          <div class="h-cell neg">${fmt(totalInt)}</div>
+          <div class="h-cell pos">${fmt(totalPrin)}</div>
+          <div class="h-cell muted">${payments.length} payments</div>
+          <div class="h-cell">—</div>
+        </div>
+      </div>
+    </div>`;
+}
+
+// ── Lazy expand: inject month rows when year first opened ─────────────────
+function toggleYear(yk){
+  if(!histData) return;
+  const container = document.getElementById('yc_'+yk);
+  const tgl       = document.getElementById('tgl_y_'+yk);
+  if(!container) return;
+  const isOpen = container.classList.contains('open');
+  if(isOpen){
+    container.classList.remove('open');
+    if(tgl) tgl.classList.remove('open');
+    return;
+  }
+  // Inject month rows on first open
+  if(!histData.yearMap[yk].rendered){
+    histData.yearMap[yk].rendered=true;
+    const {monthMap,curYear} = histData;
+    const mKeys = histData.yearMap[yk].monthKeys.slice().sort();
+    container.innerHTML = `
+      <div class="h-head" style="padding-left:20px">
+        <div class="h-cell" style="flex:2">Month</div>
+        <div class="h-cell">Interest</div><div class="h-cell">Principal</div>
+        <div class="h-cell">Payments</div><div class="h-cell">Balance</div>
+      </div>`+
+      mKeys.map(mk=>{
+        const m=monthMap[mk]; const hasPO=m.balance<0.05;
+        const past=parseInt(yk)<parseInt(curYear);
+        return `<div class="h-month-wrap" id="mw_${mk}">
+          <div class="h-row month-row clickable${hasPO?' payoff-row':''}" onclick="toggleMonth('${mk}')" style="${past?'opacity:0.7':''}">
+            <span class="h-toggle" id="tgl_m_${mk}">▶</span>
+            <div class="h-cell">${m.label}${hasPO?'<span class="payoff-badge">PAID OFF</span>':''}</div>
+            <div class="h-cell neg">${fmt(m.interest)}</div>
+            <div class="h-cell pos">${fmt(m.principal)}</div>
+            <div class="h-cell muted">${m.payments.length} payment${m.payments.length!==1?'s':''}</div>
+            <div class="h-cell">${m.balance<0.05?'<span style="color:var(--green-mid)">✓ $0</span>':fmtS(m.balance)}</div>
+          </div>
+          <div class="h-children" id="mc_${mk}"></div>
+        </div>`;
+      }).join('');
+  }
+  container.classList.add('open');
+  if(tgl) tgl.classList.add('open');
+}
+
+// ── Lazy expand: inject payment rows when month first opened ──────────────
+function toggleMonth(mk){
+  if(!histData) return;
+  const container = document.getElementById('mc_'+mk);
+  const tgl       = document.getElementById('tgl_m_'+mk);
+  if(!container) return;
+  const isOpen = container.classList.contains('open');
+  if(isOpen){
+    container.classList.remove('open');
+    if(tgl) tgl.classList.remove('open');
+    return;
+  }
+  if(!histData.monthMap[mk].rendered){
+    histData.monthMap[mk].rendered=true;
+    const m   = histData.monthMap[mk];
+    const pmt_ = histData.pmt;
+    container.innerHTML=`
+      <div class="h-head" style="padding-left:44px">
+        <div class="h-cell" style="flex:2">Date</div>
+        <div class="h-cell">Interest</div><div class="h-cell">Principal</div>
+        <div class="h-cell">Payment</div><div class="h-cell">Balance</div>
+      </div>`+
+      m.payments.map(p=>{
+        const ds=p.date.toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short',year:'numeric'});
+        const hasPO=p.balance<0.05;
+        return `<div class="h-row payment-row${hasPO?' payoff-row':''}" style="${p.isPast?'opacity:0.65':''}">
+          <div class="h-cell">
+            <span class="date-badge">${ds}</span>
+            ${hasPO?'<span class="payoff-badge">PAID OFF</span>':''}
+            ${p.isToday?'<span style="font-size:10px;background:var(--blue-light);color:var(--blue);border-radius:4px;padding:1px 5px;margin-left:4px">TODAY</span>':''}
+          </div>
+          <div class="h-cell neg">${fmt(p.interest)}</div>
+          <div class="h-cell pos">${fmt(p.principal)}</div>
+          <div class="h-cell">${fmt(pmt_)}</div>
+          <div class="h-cell">${p.balance<0.05?'<span style="color:var(--green-mid)">✓ $0</span>':fmtS(p.balance)}</div>
+        </div>`;
+      }).join('');
+  }
+  container.classList.add('open');
+  if(tgl) tgl.classList.add('open');
+}
+
+function histExpandYears(){
+  if(!histData) return;
+  histData.yearKeys.forEach(yk=>{ if(!document.getElementById('yc_'+yk)?.classList.contains('open')) toggleYear(yk); });
+}
+
+function histCollapseAll(){
+  if(!histData) return;
+  // Collapse months
+  histData.yearKeys.forEach(yk=>{
+    const yc=document.getElementById('yc_'+yk);
+    if(yc){ yc.classList.remove('open'); const t=document.getElementById('tgl_y_'+yk); if(t) t.classList.remove('open'); }
+    (histData.yearMap[yk].monthKeys||[]).forEach(mk=>{
+      const mc=document.getElementById('mc_'+mk);
+      if(mc){ mc.classList.remove('open'); const t=document.getElementById('tgl_m_'+mk); if(t) t.classList.remove('open'); }
+    });
+  });
+}
+
+function histJump(q){
+  if(!histData) return;
+  q=q.trim();
+  if(!q) return;
+  // Try matching a year
+  const yk=histData.yearKeys.find(y=>y===q);
+  if(yk){
+    if(!document.getElementById('yc_'+yk)?.classList.contains('open')) toggleYear(yk);
+    document.getElementById('yw_'+yk)?.scrollIntoView({behavior:'smooth',block:'start'});
+    return;
+  }
+  // Try matching a month label
+  const mk=Object.keys(histData.monthMap).find(k=>histData.monthMap[k].label.toLowerCase().includes(q.toLowerCase()));
+  if(mk){
+    const yk2=histData.monthMap[mk].yearKey;
+    if(!document.getElementById('yc_'+yk2)?.classList.contains('open')) toggleYear(yk2);
+    setTimeout(()=>{
+      if(!document.getElementById('mc_'+mk)?.classList.contains('open')) toggleMonth(mk);
+      document.getElementById('mw_'+mk)?.scrollIntoView({behavior:'smooth',block:'start'});
+    },50);
+  }
+}
+
+/* ─── Data export / import ─── */
+function exportData(){
+  const data={settings,log:logEntries,exported:new Date().toISOString()};
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=`mortgage-tracker-${today()}.json`;
+  a.click();
+  toast('Data exported ✓');
+}
+function importData(input){
+  const file=input.files[0];
+  if(!file)return;
+  const reader=new FileReader();
+  reader.onload=e=>{
+    try{
+      const data=JSON.parse(e.target.result);
+      if(data.settings) settings=data.settings;
+      if(data.log) logEntries=data.log;
+      DB.set('settings',settings);
+      DB.set('log',logEntries);
+      loadSettingsForm();
+      renderLogList();
+      recalc();
+      toast('Data imported ✓');
+    }catch{toast('Import failed — invalid file');}
+  };
+  reader.readAsText(file);
+  input.value='';
+}
+function confirmClearData(){
+  if(confirm('Clear ALL data including log entries? This cannot be undone.')){
+    localStorage.clear();
+    location.reload();
+  }
+}
+
+/* ─── PWA install ─── */
+let deferredPrompt=null;
+window.addEventListener('beforeinstallprompt',e=>{
+  e.preventDefault();
+  deferredPrompt=e;
+  document.getElementById('installBtn').style.display='flex';
+});
+function installPWA(){
+  if(!deferredPrompt)return;
+  deferredPrompt.prompt();
+  deferredPrompt.userChoice.then(()=>{deferredPrompt=null;document.getElementById('installBtn').style.display='none';});
+}
+window.addEventListener('appinstalled',()=>{ document.getElementById('installBtn').style.display='none'; toast('App installed ✓'); });
+
+/* ─── Service Worker ─── */
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('sw.js').catch(()=>{});
+}
+
+/* ─── Init ─── */
+loadSettingsForm();
+renderLogForm();
+renderLogList();
+recalc();
+</script>
+</body>
+</html>

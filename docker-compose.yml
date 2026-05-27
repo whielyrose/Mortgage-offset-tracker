@@ -1,0 +1,7 @@
+services:
+  mortgage-tracker:
+    image: ghcr.io/YOUR_GITHUB_USERNAME/mortgage-tracker:latest
+    container_name: mortgage-tracker
+    restart: unless-stopped
+    ports:
+      - "8765:80"

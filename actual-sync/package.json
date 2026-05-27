@@ -11,6 +11,6 @@
     "@actual-app/api": "latest"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   }
 }

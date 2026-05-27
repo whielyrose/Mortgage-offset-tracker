@@ -235,6 +235,16 @@ html,body{min-height:100%;background:var(--bg);color:var(--text);font-family:-ap
     <div class="chart-wrap" style="height:160px"><canvas id="dailyChart" role="img" aria-label="Daily interest accrual">Daily interest.</canvas></div>
     <div id="month-summary" style="margin-top:10px;font-size:12px;color:var(--muted)"></div>
   </div>
+  <div class="card" id="equity-chart-card" style="display:none">
+    <div class="card-title"><span>🏡</span> Property value &amp; equity over time</div>
+    <div style="display:flex;flex-wrap:wrap;gap:14px;margin-bottom:12px;font-size:12px;color:var(--muted)">
+      <span style="display:flex;align-items:center;gap:5px"><span style="width:16px;height:2px;background:#9F7AEA;display:inline-block"></span>Property value</span>
+      <span style="display:flex;align-items:center;gap:5px"><span style="width:16px;height:2px;background:#1D9E75;display:inline-block"></span>Equity</span>
+      <span style="display:flex;align-items:center;gap:5px"><span style="width:16px;height:2px;background:#E24B4A;display:inline-block;border-top:2px dashed #E24B4A;height:0"></span>Loan balance</span>
+    </div>
+    <div class="chart-wrap" style="height:220px"><canvas id="equityChart" role="img" aria-label="Property value and equity over time">Equity chart.</canvas></div>
+    <div id="equity-chart-summary" style="margin-top:10px;font-size:12px;color:var(--muted)"></div>
+  </div>
 </div>
 
 <!-- SETTINGS -->
@@ -301,20 +311,40 @@ html,body{min-height:100%;background:var(--bg);color:var(--text);font-family:-ap
 
   <div class="card">
     <div class="card-title"><span>🏡</span> Property value</div>
-    <p style="font-size:12px;color:var(--muted);margin-bottom:12px">Enter your estimated property value to track equity. Update it whenever you get a new estimate from Domain, realestate.com.au, or a valuer.</p>
-    <div class="g2">
+    <p style="font-size:12px;color:var(--muted);margin-bottom:12px">Track your property value over time. Log new estimates whenever you check Domain, realestate.com.au, or get a formal valuation.</p>
+
+    <div class="g2" style="margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--border)">
       <div class="field">
-        <label>Estimated property value ($)</label>
-        <input type="number" id="s-propValue" min="0" step="5000" placeholder="e.g. 650000"
-          oninput="saveSetting('propValue',this.value);recalc()">
-        <div class="hint">Last updated: <span id="s-propValueDate">—</span></div>
+        <label>Purchase price ($)</label>
+        <input type="number" id="s-purchasePrice" min="0" step="5000" placeholder="e.g. 520000"
+          oninput="saveSetting('purchasePrice',this.value);recalc()">
+        <div class="hint">What you paid for the property.</div>
       </div>
       <div class="field">
-        <label>Value last updated</label>
-        <input type="date" id="s-propValueDate" oninput="saveSetting('propValueDate',this.value);recalc()">
-        <div class="hint">Track when you last got an estimate.</div>
+        <label>Purchase date</label>
+        <input type="date" id="s-purchaseDate" oninput="saveSetting('purchaseDate',this.value);recalc()">
+        <div class="hint">Used as the starting point on the equity chart.</div>
       </div>
     </div>
+
+    <p style="font-size:12px;font-weight:500;color:var(--text);margin-bottom:10px">Log a new estimate</p>
+    <div class="g3" style="margin-bottom:10px">
+      <div class="field">
+        <label>Estimated value ($)</label>
+        <input type="number" id="pv-value" min="0" step="5000" placeholder="e.g. 680000">
+      </div>
+      <div class="field">
+        <label>Date of estimate</label>
+        <input type="date" id="pv-date">
+      </div>
+      <div class="field">
+        <label>Source / note</label>
+        <input type="text" id="pv-note" placeholder="e.g. Domain estimate">
+      </div>
+    </div>
+    <button class="btn primary small" onclick="addPropValueEntry()" style="margin-bottom:14px">Save estimate</button>
+
+    <div id="pv-log-list"></div>
   </div>
 
   <div class="card">
@@ -442,7 +472,7 @@ const API = {
         await fetch('/api/data',{
           method:'POST',
           headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({settings,log:logEntries,reconcile:reconcileEntries})
+          body:JSON.stringify({settings,log:logEntries,reconcile:reconcileEntries,propValueLog})
         });
       }catch(e){ console.warn('API save failed',e); }
     }, 600);
@@ -451,7 +481,7 @@ const API = {
 
 const defaultSettings = {
   loanAmount:550000, balance:520000, rate:6.09, termYears:30,
-  startDate:'2022-07-01', repayment:1100, freq:26, lastPayDate:'2026-05-27', actualMin:0, propValue:0, propValueDate:'',
+  startDate:'2022-07-01', repayment:1100, freq:26, lastPayDate:'2026-05-27', actualMin:0, propValue:0, propValueDate:'', purchasePrice:0, purchaseDate:'',
   offsets:[
     {name:'Everyday account',balance:12000},
     {name:'Savings account',balance:35000},
@@ -462,8 +492,9 @@ const defaultSettings = {
 /* ─── State ─── */
 let settings = {...defaultSettings};
 let logEntries = [];
+let propValueLog = []; // [{id, date, value, note}]
 let currentLogType = 'offset';
-let balChartInst = null, dailyChartInst = null, histChartInst = null;
+let balChartInst = null, dailyChartInst = null, histChartInst = null, equityChartInst = null;
 
 function saveSetting(k,v){
   const num=['loanAmount','balance','rate','termYears','repayment'];
@@ -484,6 +515,7 @@ function showPage(id){
   if(id==='schedule') renderSchedule();
   if(id==='history') renderHistory();
   if(id==='reconcile') renderReconcilePage();
+  if(id==='settings'){ const pvd=document.getElementById('pv-date'); if(pvd&&!pvd.value) pvd.value=today(); }
 }
 
 /* ─── Helpers ─── */
@@ -612,7 +644,7 @@ function removeOffset(i){ settings.offsets.splice(i,1); API.save(); renderOffset
 
 /* ─── Load settings into form ─── */
 function loadSettingsForm(){
-  ['loanAmount','balance','rate','termYears','startDate','repayment','actualMin','propValue','propValueDate'].forEach(k=>{
+  ['loanAmount','balance','rate','termYears','startDate','repayment','actualMin','propValue','propValueDate','purchasePrice','purchaseDate'].forEach(k=>{
     const el=document.getElementById('s-'+k);
     if(el) el.value=settings[k]??'';
   });
@@ -798,6 +830,8 @@ function recalc(){
     +equityHTML;
   renderBalanceChart(balance,rate,pmt,freq,totalOffset);
   renderDailyChart(effBal,rate);
+  renderPropValueLog();
+  renderEquityChart();
 }
 
 function renderBalanceChart(balance,rate,pmt,freq,totalOffset){
@@ -1585,9 +1619,181 @@ function deleteReconcileEntry(id){
   toast('Entry removed');
 }
 
+
+/* ─── Property value log ─── */
+function addPropValueEntry(){
+  const value = parseFloat(document.getElementById('pv-value')?.value);
+  const date  = document.getElementById('pv-date')?.value;
+  const note  = document.getElementById('pv-note')?.value||'';
+  if(!date){ toast('Please select a date'); return; }
+  if(isNaN(value)||value<=0){ toast('Please enter a value'); return; }
+  // Also update settings.propValue to the latest entry
+  propValueLog.unshift({id:Date.now(), date, value, note});
+  propValueLog.sort((a,b)=>b.date.localeCompare(a.date));
+  // Update current propValue to the most recent entry
+  settings.propValue = propValueLog[0].value;
+  settings.propValueDate = propValueLog[0].date;
+  API.save();
+  document.getElementById('pv-value').value='';
+  document.getElementById('pv-note').value='';
+  renderPropValueLog();
+  recalc();
+  toast('Estimate saved ✓');
+}
+
+function deletePropValueEntry(id){
+  propValueLog = propValueLog.filter(e=>e.id!==id);
+  // Update current propValue to most recent remaining entry
+  if(propValueLog.length){
+    settings.propValue = propValueLog[0].value;
+    settings.propValueDate = propValueLog[0].date;
+  } else {
+    settings.propValue = 0;
+    settings.propValueDate = '';
+  }
+  API.save();
+  renderPropValueLog();
+  recalc();
+  toast('Entry removed');
+}
+
+function renderPropValueLog(){
+  const el = document.getElementById('pv-log-list');
+  if(!el) return;
+  if(!propValueLog.length){
+    el.innerHTML='<div class="empty" style="padding:16px 0"><div class="empty-icon">🏡</div>No estimates logged yet.</div>';
+    return;
+  }
+  const purchasePrice = parseFloat(settings.purchasePrice)||0;
+  el.innerHTML = '<p style="font-size:12px;font-weight:500;color:var(--text);margin-bottom:8px">Estimate history</p>'
+    + '<table class="tbl"><thead><tr><th>Date</th><th>Estimated value</th><th>Growth from purchase</th><th>Note</th><th style="width:36px"></th></tr></thead><tbody>'
+    + propValueLog.map(e=>{
+        const growth = purchasePrice>0 ? e.value - purchasePrice : null;
+        const growthPct = purchasePrice>0 ? ((e.value-purchasePrice)/purchasePrice*100) : null;
+        const growthStr = growth===null ? '—'
+          : (growth>=0
+            ? '<span style="color:var(--green-mid)">+'+fmtS(growth)+' (+'+(growthPct.toFixed(1))+'%)</span>'
+            : '<span style="color:var(--red)">'+fmtS(growth)+' ('+(growthPct.toFixed(1))+'%)</span>');
+        return '<tr>'
+          + '<td><span class="date-badge">'+e.date+'</span></td>'
+          + '<td>'+fmtS(e.value)+'</td>'
+          + '<td>'+growthStr+'</td>'
+          + '<td style="color:var(--muted)">'+e.note+'</td>'
+          + '<td><button class="btn icon-only small" onclick="deletePropValueEntry('+e.id+')" aria-label="Delete">✕</button></td>'
+          + '</tr>';
+      }).join('')
+    + '</tbody></table>';
+}
+
+/* ─── Equity chart ─── */
+function renderEquityChart(){
+  const card = document.getElementById('equity-chart-card');
+  const purchasePrice = parseFloat(settings.purchasePrice)||0;
+  const currentBalance = getAdjustedBalance();
+
+  // Need at least one data point (purchase price or a log entry)
+  if(!purchasePrice && !propValueLog.length){
+    if(card) card.style.display='none';
+    return;
+  }
+  if(card) card.style.display='';
+
+  // Build data points: purchase + logged estimates, sorted ascending
+  const points = [];
+  if(purchasePrice && settings.purchaseDate){
+    points.push({date:settings.purchaseDate, value:purchasePrice, label:'Purchase'});
+  }
+  [...propValueLog].reverse().forEach(e=>{
+    points.push({date:e.date, value:e.value, label:e.note||'Estimate'});
+  });
+
+  if(!points.length) return;
+
+  // For loan balance at each point date, interpolate from schedule
+  const rate = getEffectiveRate()/100;
+  const freq = parseInt(settings.freq);
+  const pmt  = parseFloat(settings.repayment)||0;
+  const totalOffset = getTotalOffset();
+  const r = rate/freq;
+
+  function loanBalanceAtDate(targetDate){
+    // Walk the schedule from settings.startDate to targetDate
+    const start = new Date((settings.startDate||'2022-01-01')+'T00:00:00');
+    const target = new Date(targetDate+'T00:00:00');
+    if(target <= start) return parseFloat(settings.loanAmount)||0;
+    const daysDiff = (target - start) / (1000*60*60*24);
+    const periodsDiff = Math.round(daysDiff / (365/freq));
+    let bal = parseFloat(settings.loanAmount)||0;
+    for(let i=0; i<periodsDiff && bal>0; i++){
+      const effBal = Math.max(0, bal - totalOffset);
+      const interest = effBal * r;
+      const principal = Math.min(pmt - interest, bal);
+      if(principal <= 0) break;
+      bal -= principal;
+    }
+    return Math.max(0, bal);
+  }
+
+  const labels     = points.map(p=>p.date);
+  const propValues = points.map(p=>p.value);
+  const loanBals   = points.map(p=>loanBalanceAtDate(p.date));
+  const equities   = points.map((p,i)=>Math.max(0, p.value - loanBals[i]));
+
+  // Add today if last point is in the past
+  const todayStr = new Date().toISOString().slice(0,10);
+  const currentPropValue = parseFloat(settings.propValue)||0;
+  if(points.length && points[points.length-1].date < todayStr && currentPropValue>0){
+    labels.push(todayStr+' (today)');
+    propValues.push(currentPropValue);
+    loanBals.push(currentBalance);
+    equities.push(Math.max(0, currentPropValue - currentBalance));
+  }
+
+  if(equityChartInst) equityChartInst.destroy();
+  equityChartInst = new Chart(document.getElementById('equityChart'),{
+    type:'line',
+    data:{labels, datasets:[
+      {label:'Property value', data:propValues, borderColor:'#9F7AEA', backgroundColor:'rgba(159,122,234,0.08)',
+       borderWidth:2.5, fill:false, tension:0.3, pointRadius:5, pointHoverRadius:7,
+       pointBackgroundColor:'#9F7AEA', pointBorderColor:'#fff', pointBorderWidth:2},
+      {label:'Equity', data:equities, borderColor:'#1D9E75', backgroundColor:'rgba(29,158,117,0.1)',
+       borderWidth:2, fill:true, tension:0.3, pointRadius:4, pointHoverRadius:6,
+       pointBackgroundColor:'#1D9E75', pointBorderColor:'#fff', pointBorderWidth:2},
+      {label:'Loan balance', data:loanBals, borderColor:'#E24B4A', borderDash:[5,4],
+       backgroundColor:'transparent', borderWidth:1.5, fill:false, tension:0.3,
+       pointRadius:4, pointHoverRadius:6, pointBackgroundColor:'#E24B4A', pointBorderColor:'#fff', pointBorderWidth:2}
+    ]},
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      interaction:{mode:'index', intersect:false},
+      plugins:{legend:{display:false}, tooltip:{callbacks:{label:c=>'  '+c.dataset.label+':  $'+Math.round(c.raw).toLocaleString('en-AU')}}},
+      scales:{
+        x:{grid:{color:'rgba(128,128,128,0.07)'}, ticks:{font:{size:10}, maxTicksLimit:8, maxRotation:0}},
+        y:{min:0, grid:{color:'rgba(128,128,128,0.07)'}, ticks:{font:{size:10}, callback:v=>'$'+(v/1000).toFixed(0)+'k'}}
+      }
+    }
+  });
+
+  // Summary line
+  const latestEquity = equities[equities.length-1];
+  const latestProp   = propValues[propValues.length-1];
+  const growthFromPurchase = purchasePrice>0 ? latestProp - purchasePrice : null;
+  const growthPct = purchasePrice>0 ? ((latestProp-purchasePrice)/purchasePrice*100) : null;
+  const summaryEl = document.getElementById('equity-chart-summary');
+  if(summaryEl){
+    summaryEl.innerHTML =
+      'Current equity: <strong style="color:var(--green-mid)">'+fmtS(latestEquity)+'</strong>'
+      + (growthFromPurchase!==null
+        ? ' &nbsp;·&nbsp; Property growth: <strong style="color:#9F7AEA">+'
+          +fmtS(growthFromPurchase)+' ('+growthPct.toFixed(1)+'%)</strong>'
+        : '')
+      + ' &nbsp;·&nbsp; '+propValueLog.length+' estimate'+(propValueLog.length!==1?'s':'')+' logged';
+  }
+}
+
 /* ─── Data export / import ─── */
 function exportData(){
-  const data={settings,log:logEntries,reconcile:reconcileEntries,exported:new Date().toISOString()};
+  const data={settings,log:logEntries,reconcile:reconcileEntries,propValueLog,exported:new Date().toISOString()};
   const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
   const a=document.createElement('a');
   a.href=URL.createObjectURL(blob);
@@ -1602,9 +1808,10 @@ function importData(input){
   reader.onload=e=>{
     try{
       const data=JSON.parse(e.target.result);
-      if(data.settings)   settings=data.settings;
-      if(data.log)        logEntries=data.log;
-      if(data.reconcile)  reconcileEntries=data.reconcile||[];
+      if(data.settings)      settings=data.settings;
+      if(data.log)           logEntries=data.log;
+      if(data.reconcile)     reconcileEntries=data.reconcile||[];
+      if(data.propValueLog)  propValueLog=data.propValueLog||[];
       API.save();
       loadSettingsForm();
       renderLogList();
@@ -1646,9 +1853,10 @@ async function init(){
   el.innerHTML = '<div style="padding:40px;text-align:center;color:var(--muted)">⏳ Loading data from server…</div>';
   const data = await API.load();
   if(data){
-    if(data.settings)   settings          = {...defaultSettings, ...data.settings};
-    if(data.log)        logEntries        = data.log;
-    if(data.reconcile)  reconcileEntries  = data.reconcile;
+    if(data.settings)      settings         = {...defaultSettings, ...data.settings};
+    if(data.log)           logEntries       = data.log;
+    if(data.reconcile)     reconcileEntries = data.reconcile;
+    if(data.propValueLog)  propValueLog     = data.propValueLog;
   }
   // Restore dashboard
   el.innerHTML = `

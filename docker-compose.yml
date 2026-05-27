@@ -16,5 +16,28 @@ services:
     volumes:
       - mortgage_data:/data
 
+  actual-sync:
+    image: ghcr.io/whielyrose/mortgage-tracker-actual-sync:latest
+    container_name: mortgage-tracker-actual-sync
+    restart: "no"                          # only runs when triggered by cron
+    env_file: /opt/mortgage-tracker/.env   # see env setup below
+    volumes:
+      - actual_sync_cache:/tmp/actual-cache
+
+  cron:
+    image: mcuadros/ofelia:latest
+    container_name: mortgage-tracker-cron
+    restart: unless-stopped
+    depends_on:
+      - actual-sync
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: daemon --docker
+    labels:
+      # Runs at 11:50pm every day (server local time)
+      ofelia.job-run.actual-sync.schedule: "0 50 23 * * *"
+      ofelia.job-run.actual-sync.container: "mortgage-tracker-actual-sync"
+
 volumes:
   mortgage_data:
+  actual_sync_cache:

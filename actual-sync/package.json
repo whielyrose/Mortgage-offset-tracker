@@ -1,0 +1,16 @@
+{
+  "name": "actual-sync",
+  "version": "1.0.0",
+  "description": "Nightly sync from Actual Budget to Mortgage Tracker",
+  "main": "sync.js",
+  "scripts": {
+    "start": "node sync.js",
+    "dry-run": "DRY_RUN=true node sync.js"
+  },
+  "dependencies": {
+    "@actual-app/api": "^25.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

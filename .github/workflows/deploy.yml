@@ -42,3 +42,13 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository_owner }}/mortgage-tracker-api:latest
             ghcr.io/${{ github.repository_owner }}/mortgage-tracker-api:${{ github.sha }}
+
+      - name: Build and push actual-sync image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./actual-sync
+          dockerfile: ./actual-sync/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/mortgage-tracker-actual-sync:latest
+            ghcr.io/${{ github.repository_owner }}/mortgage-tracker-actual-sync:${{ github.sha }}

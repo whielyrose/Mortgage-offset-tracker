@@ -276,7 +276,19 @@ html,body{min-height:100%;background:var(--bg);color:var(--text);font-family:-ap
     </div>
     <div id="s-pmt-hint" class="field"><div class="hint"></div></div>
     <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
-      <div class="field"><label>Auto-calculated minimum repayment</label><input type="text" id="s-minPmt" readonly style="background:var(--surface3);color:var(--muted)"></div>
+      <div class="g2">
+        <div class="field">
+          <label>Actual minimum (from your lender)</label>
+          <input type="number" id="s-actualMin" step="0.01" min="0" placeholder="e.g. 1067.11"
+            oninput="saveSetting('actualMin',this.value);recalc()">
+          <div class="hint">Enter what Beyond Bank actually says your minimum is. Lenders set this at each review, not from current balance.</div>
+        </div>
+        <div class="field">
+          <label>Tracker's calculated minimum <span style="font-weight:400;font-size:11px">(reference only)</span></label>
+          <input type="text" id="s-minPmt" readonly style="background:var(--surface3);color:var(--muted)">
+          <div class="hint">Based on current balance + full term. Will differ from lender's figure.</div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -421,7 +433,7 @@ const API = {
 
 const defaultSettings = {
   loanAmount:550000, balance:520000, rate:6.09, termYears:30,
-  startDate:'2022-07-01', repayment:1100, freq:26, lastPayDate:'2026-05-27',
+  startDate:'2022-07-01', repayment:1100, freq:26, lastPayDate:'2026-05-27', actualMin:0,
   offsets:[
     {name:'Everyday account',balance:12000},
     {name:'Savings account',balance:35000},
@@ -582,7 +594,7 @@ function removeOffset(i){ settings.offsets.splice(i,1); API.save(); renderOffset
 
 /* ─── Load settings into form ─── */
 function loadSettingsForm(){
-  ['loanAmount','balance','rate','termYears','startDate','repayment'].forEach(k=>{
+  ['loanAmount','balance','rate','termYears','startDate','repayment','actualMin'].forEach(k=>{
     const el=document.getElementById('s-'+k);
     if(el) el.value=settings[k]??'';
   });
@@ -707,15 +719,21 @@ function recalc(){
   const effBal=Math.max(0,balance-totalOffset);
   const dailyRate=rate/365;
   const dailyInt=effBal*dailyRate;
-  const minPmt=minRepayment(balance,rate,settings.termYears,freq);
-  document.getElementById('s-minPmt').value=fmt(minPmt);
+  const calcMinPmt=minRepayment(balance,rate,settings.termYears,freq);
+  document.getElementById('s-minPmt').value=fmt(calcMinPmt);
+  const actualMinEl=document.getElementById('s-actualMin');
+  if(actualMinEl && settings.actualMin) actualMinEl.value=settings.actualMin;
+
+  // Use lender's actual minimum if set, otherwise fall back to calculated
+  const minPmt = (settings.actualMin && settings.actualMin > 0) ? settings.actualMin : calcMinPmt;
 
   const hintEl=document.querySelector('#s-pmt-hint .hint');
   if(hintEl){
     const diff=pmt-minPmt;
-    if(pmt<minPmt*0.999){hintEl.className='hint warn';hintEl.textContent=`⚠ ${fmt(minPmt-pmt)} below minimum — loan won't be paid off.`;}
-    else if(diff>0.5){hintEl.className='hint ok';hintEl.textContent=`Paying ${fmt(diff)} extra per ${freqName(freq)} — accelerating payoff.`;}
-    else{hintEl.className='hint';hintEl.textContent='Paying at minimum repayment level.';}
+    const src = (settings.actualMin && settings.actualMin > 0) ? 'lender minimum' : 'calculated minimum';
+    if(pmt<minPmt*0.999){hintEl.className='hint warn';hintEl.textContent=`⚠ ${fmt(minPmt-pmt)} below ${src} — loan won't be paid off.`;}
+    else if(diff>0.5){hintEl.className='hint ok';hintEl.textContent=`Paying ${fmt(diff)} extra per ${freqName(freq)} above ${src} — accelerating payoff.`;}
+    else{hintEl.className='hint';hintEl.textContent=`Paying at ${src}.`;}
   }
 
   const withOff=runSchedule(balance,rate,pmt,freq,totalOffset);
@@ -883,7 +901,8 @@ function renderAmort(balance,rate,pmt,freq,totalOffset){
   const projYears = projRows.length;
 
   // ── Full 30-year term schedule (no offset, minimum repayments) ──
-  const minPmt=minRepayment(balance,rate,termYears,freq);
+  // Use lender's actual minimum if set, otherwise calculate
+  const minPmt=(settings.actualMin&&settings.actualMin>0)?settings.actualMin:minRepayment(balance,rate,termYears,freq);
   let balTerm=balance, periodTerm=0;
   const termRows=[];
   while(balTerm>0.01&&periodTerm<termYears*freq){

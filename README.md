@@ -96,6 +96,7 @@ services:
     container_name: mortgage-tracker-actual-sync
     restart: "no"
     environment:
+      - TZ=Australia/Brisbane        # change to your timezone
       - ACTUAL_SERVER_URL=https://your-actual-budget-url.com
       - ACTUAL_SERVER_PASSWORD=your-actual-password
       - ACTUAL_SYNC_ID=your-sync-id-from-actual-settings
@@ -129,6 +130,7 @@ Open Actual Budget → Settings → Show advanced settings → copy the Sync ID.
 - `cron` (Ofelia) stays running permanently and triggers `actual-sync` each night.
 - The sync reads all on-budget, open accounts and sums their balances. It never writes to Actual Budget.
 - The cache is cleared before each run to avoid stale migration state from Actual Budget version updates.
+- **Timezone** — set `TZ` to your local timezone (e.g. `Australia/Sydney`, `Europe/London`, `America/New_York`). This controls both the timestamp in the sync logs and when the 11:50pm cron fires. Full list of valid timezone names: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
 
 ---
 

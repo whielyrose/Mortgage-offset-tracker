@@ -786,7 +786,7 @@ function recalc(){
   const equityHTML = propValue > 0
     ? '<div class="metric '+lvrColour+'"><div class="m-lbl">Equity</div><div class="m-val">'+fmtS(equity)+'</div><div class="m-sub">'+equityPct.toFixed(1)+'% of property value</div></div>'
       + '<div class="metric '+lvrColour+'"><div class="m-lbl">LVR</div><div class="m-val">'+lvr.toFixed(1)+'%</div><div class="m-sub">'+lvrNote+'</div></div>'
-    : '<div class="metric" style="opacity:0.5"><div class="m-lbl">Equity</div><div class="m-val">—</div><div class="m-sub"><a href="#" onclick="showPage('settings');return false;" style="color:var(--green-mid);font-size:12px">Add property value →</a></div></div>'
+    : '<div class="metric" style="opacity:0.5"><div class="m-lbl">Equity</div><div class="m-val">—</div><div class="m-sub"><a href="#" onclick="showPage(&quot;settings&quot;);return false;" style="color:var(--green-mid);font-size:12px">Add property value →</a></div></div>'
       + '<div class="metric" style="opacity:0.5"><div class="m-lbl">LVR</div><div class="m-val">—</div><div class="m-sub">Set in Mortgage Setup</div></div>';
 
   const metrics=document.getElementById('dash-metrics');

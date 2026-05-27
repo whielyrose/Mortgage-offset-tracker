@@ -1665,8 +1665,10 @@ function renderPropValueLog(){
     return;
   }
   const purchasePrice = parseFloat(settings.purchasePrice)||0;
+  // Sort ascending for "since last" calc (oldest first), display descending
+  const sortedAsc = [...propValueLog].sort((a,b)=>a.date.localeCompare(b.date));
   el.innerHTML = '<p style="font-size:12px;font-weight:500;color:var(--text);margin-bottom:8px">Estimate history</p>'
-    + '<table class="tbl"><thead><tr><th>Date</th><th>Estimated value</th><th>Growth from purchase</th><th>Note</th><th style="width:36px"></th></tr></thead><tbody>'
+    + '<div style="overflow-x:auto"><table class="tbl" style="min-width:540px"><thead><tr><th>Date</th><th>Estimated value</th><th>Growth from purchase</th><th>Change since last entry</th><th>Note</th><th style="width:36px"></th></tr></thead><tbody>'
     + propValueLog.map(e=>{
         const growth = purchasePrice>0 ? e.value - purchasePrice : null;
         const growthPct = purchasePrice>0 ? ((e.value-purchasePrice)/purchasePrice*100) : null;
@@ -1674,15 +1676,29 @@ function renderPropValueLog(){
           : (growth>=0
             ? '<span style="color:var(--green-mid)">+'+fmtS(growth)+' (+'+(growthPct.toFixed(1))+'%)</span>'
             : '<span style="color:var(--red)">'+fmtS(growth)+' ('+(growthPct.toFixed(1))+'%)</span>');
+        // Find previous entry in ascending order
+        const idx = sortedAsc.findIndex(x=>x.id===e.id);
+        const prev = idx > 0 ? sortedAsc[idx-1] : null;
+        let sinceLastStr = '—';
+        if(prev){
+          const diff = e.value - prev.value;
+          const diffPct = (diff/prev.value*100);
+          sinceLastStr = diff>=0
+            ? '<span style="color:var(--green-mid)">+'+fmtS(diff)+' (+'+(diffPct.toFixed(1))+'%)</span>'
+            : '<span style="color:var(--red)">'+fmtS(diff)+' ('+(diffPct.toFixed(1))+'%)</span>';
+        } else if(purchasePrice>0){
+          sinceLastStr = '<span style="color:var(--muted);font-size:11px">First entry</span>';
+        }
         return '<tr>'
           + '<td><span class="date-badge">'+e.date+'</span></td>'
           + '<td>'+fmtS(e.value)+'</td>'
           + '<td>'+growthStr+'</td>'
+          + '<td>'+sinceLastStr+'</td>'
           + '<td style="color:var(--muted)">'+e.note+'</td>'
           + '<td><button class="btn icon-only small" onclick="deletePropValueEntry('+e.id+')" aria-label="Delete">✕</button></td>'
           + '</tr>';
       }).join('')
-    + '</tbody></table>';
+    + '</tbody></table></div>';
 }
 
 /* ─── Equity chart ─── */

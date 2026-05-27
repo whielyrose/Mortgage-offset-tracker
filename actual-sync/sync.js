@@ -16,9 +16,10 @@ const ACTUAL_SERVER_URL      = process.env.ACTUAL_SERVER_URL;
 const ACTUAL_SERVER_PASSWORD = process.env.ACTUAL_SERVER_PASSWORD;
 const ACTUAL_SYNC_ID         = process.env.ACTUAL_SYNC_ID;
 const ACTUAL_FILE_PASSWORD   = process.env.ACTUAL_FILE_PASSWORD || null;
-const MORTGAGE_API_URL       = process.env.MORTGAGE_API_URL; // e.g. http://mortgage-tracker-api:8000
+const MORTGAGE_API_URL       = process.env.MORTGAGE_API_URL;
 const CACHE_DIR              = process.env.ACTUAL_CACHE_DIR || '/tmp/actual-cache';
 const DRY_RUN                = process.env.DRY_RUN === 'true';
+const TZ                     = process.env.TZ || 'Australia/Brisbane';
 
 function validateConfig() {
   const required = { ACTUAL_SERVER_URL, ACTUAL_SERVER_PASSWORD, ACTUAL_SYNC_ID, MORTGAGE_API_URL };
@@ -29,8 +30,19 @@ function validateConfig() {
   }
 }
 
-function todayString() {
-  return new Date().toISOString().slice(0, 10);
+// ── Always derive date/time from the TZ env var directly in JS ──────────────
+// This bypasses any Docker host clock issues entirely.
+function nowInTZ() {
+  return new Date().toLocaleString('en-AU', { timeZone: TZ });
+}
+
+function todayStringInTZ() {
+  // Get YYYY-MM-DD in the configured timezone
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: TZ,
+    year: 'numeric', month: '2-digit', day: '2-digit'
+  }).format(new Date());
+  return parts; // en-CA gives YYYY-MM-DD format
 }
 
 function fmtMoney(cents) {
@@ -54,9 +66,13 @@ async function postToMortgageTracker(data) {
 }
 
 async function main() {
+  const localNow  = nowInTZ();
+  const localDate = todayStringInTZ();
+
   console.log('═══════════════════════════════════════════');
   console.log('  Actual Budget → Mortgage Tracker Sync');
-  console.log(`  ${new Date().toLocaleString('en-AU', { timeZone: 'Australia/Adelaide' })} (Adelaide time)`);
+  console.log(`  ${localNow} (${TZ})`);
+  console.log(`  Logging date: ${localDate}`);
   console.log('═══════════════════════════════════════════');
 
   validateConfig();
@@ -85,7 +101,6 @@ async function main() {
   let totalCents = 0;
 
   for (const account of onBudget) {
-    // Get balance via transactions sum
     const transactions = await actualAPI.getTransactions(account.id);
     const balanceCents = transactions.reduce((sum, t) => sum + (t.amount || 0), 0);
     totalCents += balanceCents;
@@ -112,10 +127,9 @@ async function main() {
   }
 
   // ── 4. Build new log entry ────────────────────────────────────────────────
-  const today = todayString();
+  const today = localDate; // use timezone-aware date, not UTC
   const log = mortgageData.log || [];
 
-  // Check if we already have an auto-sync entry for today — update rather than duplicate
   const existingIdx = log.findIndex(e =>
     e.type === 'offset' &&
     e.date === today &&
@@ -128,7 +142,7 @@ async function main() {
     date: today,
     account: 'All on-budget accounts (auto-sync)',
     balance: totalDollars,
-    note: `Auto-synced from Actual Budget — ${onBudget.length} accounts — ${new Date().toLocaleString('en-AU', { timeZone: 'Australia/Adelaide' })}`
+    note: `Auto-synced from Actual Budget — ${onBudget.length} accounts — ${localNow} (${TZ})`
   };
 
   if (existingIdx >= 0) {

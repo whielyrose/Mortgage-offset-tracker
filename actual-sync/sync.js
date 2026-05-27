@@ -2,16 +2,18 @@
 /**
  * actual-sync — nightly sync from Actual Budget to Mortgage Tracker
  *
- * Reads all on-budget account balances from Actual Budget,
- * totals them up, and posts a dated offset balance entry
- * to the mortgage tracker API.
+ * Every night:
+ *   1. Reads all on-budget account balances from Actual Budget
+ *   2. Posts total as a dated offset balance log entry
+ *
+ * On the last day of the month (or first day if last day was missed):
+ *   3. Calculates estimated monthly interest using daily accrual
+ *   4. Posts an interest-charge log entry that increases the outstanding balance
  */
 
 const actualAPI = require('@actual-app/api');
 const fs = require('fs');
-const path = require('path');
 
-// ── Config from environment ──────────────────────────────────────────────────
 const ACTUAL_SERVER_URL      = process.env.ACTUAL_SERVER_URL;
 const ACTUAL_SERVER_PASSWORD = process.env.ACTUAL_SERVER_PASSWORD;
 const ACTUAL_SYNC_ID         = process.env.ACTUAL_SYNC_ID;
@@ -30,23 +32,46 @@ function validateConfig() {
   }
 }
 
-// ── Always derive date/time from the TZ env var directly in JS ──────────────
-// This bypasses any Docker host clock issues entirely.
+// ── Timezone-safe date helpers ───────────────────────────────────────────────
 function nowInTZ() {
   return new Date().toLocaleString('en-AU', { timeZone: TZ });
 }
 
 function todayStringInTZ() {
-  // Get YYYY-MM-DD in the configured timezone
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: TZ,
-    year: 'numeric', month: '2-digit', day: '2-digit'
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit'
   }).format(new Date());
-  return parts; // en-CA gives YYYY-MM-DD format
 }
 
-function fmtMoney(cents) {
-  return (cents / 100).toLocaleString('en-AU', { style: 'currency', currency: 'AUD' });
+function getLocalDateParts(dateStr) {
+  // dateStr = YYYY-MM-DD
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return { year: y, month: m, day: d }; // month is 1-based
+}
+
+function lastDayOfMonth(year, month) {
+  // month is 1-based
+  return new Date(year, month, 0).getDate();
+}
+
+function isLastDayOfMonth(dateStr) {
+  const { year, month, day } = getLocalDateParts(dateStr);
+  return day === lastDayOfMonth(year, month);
+}
+
+function isFirstDayOfMonth(dateStr) {
+  return getLocalDateParts(dateStr).day === 1;
+}
+
+function prevMonthStr(dateStr) {
+  const { year, month } = getLocalDateParts(dateStr);
+  const prevMonth = month === 1 ? 12 : month - 1;
+  const prevYear  = month === 1 ? year - 1 : year;
+  return `${prevYear}-${String(prevMonth).padStart(2,'0')}`;
+}
+
+function fmtMoney(n) {
+  return n.toLocaleString('en-AU', { style: 'currency', currency: 'AUD' });
 }
 
 async function loadCurrentMortgageData() {
@@ -65,6 +90,88 @@ async function postToMortgageTracker(data) {
   return await resp.json();
 }
 
+// ── Monthly interest calculation ─────────────────────────────────────────────
+// Mirrors calcMonthEstimate in the frontend, runs server-side
+function calcMonthInterest(monthStr, mortgageData) {
+  const settings   = mortgageData.settings || {};
+  const logEntries = mortgageData.log || [];
+  const rate       = getEffectiveRate(logEntries, settings) / 100;
+  const dailyRate  = rate / 365;
+
+  const [yearNum, monthNum0] = monthStr.split('-').map(Number);
+  const monthNum = monthNum0 - 1; // 0-indexed for Date
+  const daysInMonth = new Date(yearNum, monthNum + 1, 0).getDate();
+
+  // Get offset log entries sorted ascending
+  const offsetLogs = logEntries
+    .filter(e => e.type === 'offset')
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  // Get rate changes
+  const rateLogs = logEntries
+    .filter(e => e.type === 'rate')
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  // Get payments that affect balance, before this month
+  const monthStart = `${yearNum}-${String(monthNum + 1).padStart(2,'0')}-01`;
+  let runningBalance = parseFloat(settings.balance) || 0;
+  const paymentLogs = logEntries
+    .filter(e => (e.type === 'repayment' || e.type === 'extra' || e.type === 'interest-charge') && e.date < monthStart)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  paymentLogs.forEach(p => {
+    const amt = parseFloat(p.amount || 0);
+    if (p.type === 'repayment' || p.type === 'extra') runningBalance = Math.max(0, runningBalance - amt);
+    else if (p.type === 'interest-charge') runningBalance = runningBalance + amt;
+  });
+
+  let totalInterest = 0;
+
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateStr = `${yearNum}-${String(monthNum+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+
+    // Apply any payments on this day
+    logEntries
+      .filter(e => e.date === dateStr && (e.type === 'repayment' || e.type === 'extra' || e.type === 'interest-charge'))
+      .forEach(p => {
+        const amt = parseFloat(p.amount || 0);
+        if (p.type === 'repayment' || p.type === 'extra') runningBalance = Math.max(0, runningBalance - amt);
+        else if (p.type === 'interest-charge') runningBalance = runningBalance + amt;
+      });
+
+    // Effective rate on this day
+    let dayRate = rate;
+    rateLogs.forEach(r => { if (r.date <= dateStr) dayRate = parseFloat(r.rate) / 100; });
+
+    // Offset total for this day
+    const latestPerAccount = {};
+    (settings.offsets || []).forEach(o => { latestPerAccount[o.name] = o.balance; });
+    offsetLogs.forEach(e => {
+      if (e.date <= dateStr) latestPerAccount[e.account] = parseFloat(e.balance) || 0;
+    });
+    const totalOffset = Object.values(latestPerAccount).reduce((a, b) => a + b, 0);
+    const effBal = Math.max(0, runningBalance - totalOffset);
+    totalInterest += effBal * (dayRate / 365);
+  }
+
+  return Math.round(totalInterest * 100) / 100;
+}
+
+function getEffectiveRate(logEntries, settings) {
+  const rateLogs = (logEntries || [])
+    .filter(e => e.type === 'rate')
+    .sort((a, b) => b.date.localeCompare(a.date));
+  return rateLogs.length ? parseFloat(rateLogs[0].rate) || settings.rate : settings.rate;
+}
+
+function interestChargeAlreadyExists(log, monthStr) {
+  return log.some(e =>
+    e.type === 'interest-charge' &&
+    e.date.startsWith(monthStr) &&
+    e.note && e.note.includes('auto-calculated')
+  );
+}
+
+// ── Main ─────────────────────────────────────────────────────────────────────
 async function main() {
   const localNow  = nowInTZ();
   const localDate = todayStringInTZ();
@@ -92,24 +199,22 @@ async function main() {
   const onBudget = accounts.filter(a => !a.offbudget && !a.closed);
 
   if (!onBudget.length) {
-    console.error('❌ No on-budget accounts found. Check your Actual Budget setup.');
+    console.error('❌ No on-budget accounts found.');
     await actualAPI.shutdown();
     process.exit(1);
   }
 
   console.log(`\n  Found ${onBudget.length} on-budget account(s):\n`);
   let totalCents = 0;
-
   for (const account of onBudget) {
     const transactions = await actualAPI.getTransactions(account.id);
     const balanceCents = transactions.reduce((sum, t) => sum + (t.amount || 0), 0);
     totalCents += balanceCents;
-    const indicator = balanceCents >= 0 ? '✓' : '⚠';
-    console.log(`  ${indicator}  ${account.name.padEnd(35)} ${fmtMoney(balanceCents)}`);
+    console.log(`  ${balanceCents >= 0 ? '✓' : '⚠'}  ${account.name.padEnd(35)} ${fmtMoney(balanceCents/100)}`);
   }
 
   const totalDollars = totalCents / 100;
-  console.log(`\n  ${'TOTAL OFFSET'.padEnd(35)} ${fmtMoney(totalCents)}`);
+  console.log(`\n  ${'TOTAL OFFSET'.padEnd(35)} ${fmtMoney(totalDollars)}`);
 
   await actualAPI.shutdown();
   console.log('\n✓ Actual Budget connection closed');
@@ -122,41 +227,94 @@ async function main() {
     console.log('✓ Mortgage tracker data loaded');
   } catch (e) {
     console.error(`❌ Could not reach mortgage tracker API: ${e.message}`);
-    console.error(`   Is the mortgage tracker running at ${MORTGAGE_API_URL}?`);
     process.exit(1);
   }
 
-  // ── 4. Build new log entry ────────────────────────────────────────────────
-  const today = localDate; // use timezone-aware date, not UTC
   const log = mortgageData.log || [];
 
+  // ── 4. Update offset balance log entry ───────────────────────────────────
+  const today = localDate;
   const existingIdx = log.findIndex(e =>
-    e.type === 'offset' &&
-    e.date === today &&
+    e.type === 'offset' && e.date === today &&
     e.account === 'All on-budget accounts (auto-sync)'
   );
 
-  const newEntry = {
+  const offsetEntry = {
     id: existingIdx >= 0 ? log[existingIdx].id : Date.now(),
-    type: 'offset',
-    date: today,
+    type: 'offset', date: today,
     account: 'All on-budget accounts (auto-sync)',
     balance: totalDollars,
     note: `Auto-synced from Actual Budget — ${onBudget.length} accounts — ${localNow} (${TZ})`
   };
 
   if (existingIdx >= 0) {
-    console.log(`\n♻  Updating existing entry for today (${today})`);
-    log[existingIdx] = newEntry;
+    console.log(`\n♻  Updating existing offset entry for today (${today})`);
+    log[existingIdx] = offsetEntry;
   } else {
     console.log(`\n➕ Adding new offset log entry for ${today}`);
-    log.unshift(newEntry);
+    log.unshift(offsetEntry);
   }
 
-  // ── 5. Post back to mortgage tracker ─────────────────────────────────────
+  // ── 5. Monthly interest charge (last day of month, or catch-up on 1st) ───
+  let interestEntry = null;
+  let targetMonth   = null;
+
+  if (isLastDayOfMonth(today)) {
+    targetMonth = today.slice(0, 7); // YYYY-MM
+    console.log(`\n📅 Last day of month detected (${today})`);
+  } else if (isFirstDayOfMonth(today)) {
+    const prev = prevMonthStr(today);
+    if (!interestChargeAlreadyExists(log, prev)) {
+      targetMonth = prev;
+      console.log(`\n📅 First day of month — checking if last month's interest was posted...`);
+      console.log(`   No interest charge found for ${prev} — calculating catch-up`);
+    } else {
+      console.log(`\n📅 First day of month — ${prevMonthStr(today)} interest already posted ✓`);
+    }
+  }
+
+  if (targetMonth) {
+    // Remove any existing auto-calculated charge for this month (recalculate fresh)
+    const existingChargeIdx = log.findIndex(e =>
+      e.type === 'interest-charge' && e.date.startsWith(targetMonth) &&
+      e.note && e.note.includes('auto-calculated')
+    );
+    if (existingChargeIdx >= 0) {
+      log.splice(existingChargeIdx, 1);
+      console.log(`   Removed previous auto-calculated charge for ${targetMonth}`);
+    }
+
+    // Calculate interest for the target month
+    // First make sure today's offset is reflected in the data for the calculation
+    const tempData = { ...mortgageData, log };
+    const estimatedInterest = calcMonthInterest(targetMonth, tempData);
+    const { year, month } = getLocalDateParts(targetMonth + '-01');
+    const chargeDay = lastDayOfMonth(year, month - 1 === 0 ? 12 : month);
+    // Wait — month here is 1-based already from the YYYY-MM string
+    const lastDay = lastDayOfMonth(year, month);
+    const chargeDateStr = `${targetMonth}-${String(lastDay).padStart(2,'0')}`;
+    const monthLabel = new Date(year, month - 1, 1).toLocaleDateString('en-AU', { month: 'long', year: 'numeric' });
+
+    interestEntry = {
+      id: Date.now() + 2,
+      type: 'interest-charge',
+      date: chargeDateStr,
+      amount: estimatedInterest,
+      note: `auto-calculated interest for ${monthLabel} — ${lastDay} days — ${fmtMoney(estimatedInterest)}`
+    };
+
+    log.unshift(interestEntry);
+    console.log(`\n💰 Interest charge posted for ${monthLabel}:`);
+    console.log(`   Date:   ${chargeDateStr}`);
+    console.log(`   Amount: ${fmtMoney(estimatedInterest)}`);
+    console.log(`   Note:   auto-calculated — reconcile against your statement to adjust`);
+  }
+
+  // ── 6. Post back to mortgage tracker ─────────────────────────────────────
   if (DRY_RUN) {
     console.log('\n⚠  DRY RUN — would have posted:');
-    console.log(JSON.stringify(newEntry, null, 2));
+    console.log('  Offset entry:', JSON.stringify(offsetEntry, null, 2));
+    if (interestEntry) console.log('  Interest entry:', JSON.stringify(interestEntry, null, 2));
   } else {
     console.log('\n📤 Posting to mortgage tracker...');
     await postToMortgageTracker({
@@ -170,7 +328,8 @@ async function main() {
 
   console.log('\n═══════════════════════════════════════════');
   console.log('  Sync complete ✓');
-  console.log(`  Total offset logged: ${fmtMoney(totalCents)}`);
+  console.log(`  Total offset logged: ${fmtMoney(totalDollars)}`);
+  if (interestEntry) console.log(`  Interest charged:   ${fmtMoney(interestEntry.amount)}`);
   console.log('═══════════════════════════════════════════\n');
 }
 

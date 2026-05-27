@@ -367,6 +367,7 @@ html,body{min-height:100%;background:var(--bg);color:var(--text);font-family:-ap
       <button class="log-type-btn" onclick="setLogType('repayment')" id="lt-repayment">💳 Repayment</button>
       <button class="log-type-btn" onclick="setLogType('rate')" id="lt-rate">📈 Rate change</button>
       <button class="log-type-btn" onclick="setLogType('extra')" id="lt-extra">💰 Extra payment</button>
+      <button class="log-type-btn" onclick="setLogType('interest-charge')" id="lt-interest-charge">🏦 Interest charge</button>
     </div>
     <div id="logFormFields"></div>
     <div style="margin-top:10px">
@@ -559,14 +560,17 @@ function getExtraThisMonth(){
 /* ─── Balance with logged repayments & extras applied ─── */
 function getAdjustedBalance(){
   let bal = settings.balance;
-  const rate = getEffectiveRate() / 100;
-  // Apply each logged repayment and extra in order
-  const payments = logEntries
-    .filter(e=>e.type==='repayment'||e.type==='extra')
+  // Apply repayments, extra payments, and interest charges in date order
+  const entries = logEntries
+    .filter(e=>e.type==='repayment'||e.type==='extra'||e.type==='interest-charge')
     .sort((a,b)=>a.date.localeCompare(b.date));
-  payments.forEach(e=>{
+  entries.forEach(e=>{
     const amt = parseFloat(e.amount||0);
-    if(e.type==='repayment'||e.type==='extra') bal = Math.max(0, bal - amt);
+    if(e.type==='repayment'||e.type==='extra'){
+      bal = Math.max(0, bal - amt);           // reduces balance
+    } else if(e.type==='interest-charge'){
+      bal = bal + amt;                         // increases balance
+    }
   });
   return Math.max(0, bal);
 }
@@ -701,6 +705,13 @@ function renderLogForm(){
       <div class="field"><label>Extra payment ($)</label><input type="number" id="lf-amount" min="0" placeholder="e.g. 5000"></div>
     </div>
     <div class="field" style="margin-top:8px"><label>Note (optional)</label><input type="text" id="lf-note" placeholder="e.g. tax return lump sum"></div>`;
+  } else if(currentLogType==='interest-charge'){
+    f.innerHTML=`<div class="g2">
+      <div class="field"><label>Charge date</label><input type="date" id="lf-date" value="${today()}"></div>
+      <div class="field"><label>Interest charged ($)</label><input type="number" id="lf-amount" min="0" step="0.01" placeholder="e.g. 1508.36"></div>
+    </div>
+    <div class="field" style="margin-top:8px"><label>Note (optional)</label><input type="text" id="lf-note" placeholder="e.g. auto-calculated or from statement"></div>
+    <div class="hint" style="margin-top:6px">This increases the outstanding balance. Log the actual amount from your lender statement, or let the auto-sync calculate it each month end.</div>`;
   }
 }
 
@@ -729,6 +740,10 @@ function addLogEntry(){
     const amount=parseFloat(document.getElementById('lf-amount')?.value);
     if(isNaN(amount)||amount<=0){toast('Please enter an amount');return;}
     entry={...entry,amount};
+  } else if(currentLogType==='interest-charge'){
+    const amount=parseFloat(document.getElementById('lf-amount')?.value);
+    if(isNaN(amount)||amount<=0){toast('Please enter the interest amount');return;}
+    entry={...entry,amount};
   }
   logEntries.unshift(entry);
   API.save();
@@ -750,15 +765,16 @@ function renderLogList(){
   const el=document.getElementById('logList');
   document.getElementById('log-count').textContent=`(${logEntries.length})`;
   if(!logEntries.length){el.innerHTML='<div class="empty"><div class="empty-icon">📋</div>No entries yet. Add your first entry above.</div>';return;}
-  const icons={offset:'📊',repayment:'💳',rate:'📈',extra:'💰'};
+  const icons={offset:'📊',repayment:'💳',rate:'📈',extra:'💰','interest-charge':'🏦'};
   const sorted=[...logEntries].sort((a,b)=>b.date.localeCompare(a.date));
   el.innerHTML=`<table class="tbl"><thead><tr><th>Date</th><th>Type</th><th>Detail</th><th>Note</th><th style="width:36px"></th></tr></thead><tbody>${
     sorted.map(e=>{
       let detail='';
-      if(e.type==='offset') detail=`${e.account}: ${fmtS(e.balance)}`;
+      if(e.type==='offset') detail=`${e.account}: ${fmt(e.balance)}`;
       else if(e.type==='repayment') detail=`${fmt(e.amount)} (${e.subtype||'scheduled'})`;
       else if(e.type==='rate') detail=`${e.rate}% p.a.`;
       else if(e.type==='extra') detail=`${fmt(e.amount)} lump sum`;
+      else if(e.type==='interest-charge') detail=`<span style="color:var(--red)">${fmt(e.amount)} interest charged</span>${e.note&&e.note.includes('auto-calculated')?'<span style="font-size:10px;background:var(--green-light);color:var(--green);border-radius:4px;padding:1px 5px;margin-left:4px">auto</span>':''}`;
       return `<tr>
         <td><span class="date-badge">${e.date}</span></td>
         <td>${icons[e.type]||''} ${e.type}</td>
@@ -816,16 +832,16 @@ function recalc(){
   const lvrColour = lvr===null ? '' : lvr<=60 ? 'green' : lvr<=80 ? 'amber' : 'red';
   const lvrNote   = lvr===null ? '' : lvr<=60 ? '🟢 Great — below 60%' : lvr<=80 ? '🟡 Under 80% — refinance eligible' : '🔴 Above 80% — LMI may apply';
   const equityHTML = propValue > 0
-    ? '<div class="metric '+lvrColour+'"><div class="m-lbl">Equity</div><div class="m-val">'+fmtS(equity)+'</div><div class="m-sub">'+equityPct.toFixed(1)+'% of property value</div></div>'
+    ? '<div class="metric '+lvrColour+'"><div class="m-lbl">Equity</div><div class="m-val">'+fmt(equity)+'</div><div class="m-sub">'+equityPct.toFixed(1)+'% of property value</div></div>'
       + '<div class="metric '+lvrColour+'"><div class="m-lbl">LVR</div><div class="m-val">'+lvr.toFixed(1)+'%</div><div class="m-sub">'+lvrNote+'</div></div>'
     : '<div class="metric" style="opacity:0.5"><div class="m-lbl">Equity</div><div class="m-val">—</div><div class="m-sub"><a href="#" onclick="showPage(&quot;settings&quot;);return false;" style="color:var(--green-mid);font-size:12px">Add property value →</a></div></div>'
       + '<div class="metric" style="opacity:0.5"><div class="m-lbl">LVR</div><div class="m-val">—</div><div class="m-sub">Set in Mortgage Setup</div></div>';
 
   const metrics=document.getElementById('dash-metrics');
   if(metrics) metrics.innerHTML=
-    '<div class="metric"><div class="m-lbl">Outstanding balance</div><div class="m-val">'+fmtS(balance)+'</div><div class="m-sub">'+fmtS(totalOffset)+' in offset</div></div>'
-    +'<div class="metric green"><div class="m-lbl">Total offset balance</div><div class="m-val">'+fmtS(totalOffset)+'</div><div class="m-sub">'+fmt(effBal*dailyRate)+' saved today vs no offset</div></div>'
-    +'<div class="metric blue"><div class="m-lbl">Daily interest</div><div class="m-val">'+fmt(dailyInt)+'</div><div class="m-sub">on '+fmtS(effBal)+' effective</div></div>'
+    '<div class="metric"><div class="m-lbl">Outstanding balance</div><div class="m-val">'+fmt(balance)+'</div><div class="m-sub">'+fmt(totalOffset)+' in offset</div></div>'
+    +'<div class="metric green"><div class="m-lbl">Total offset balance</div><div class="m-val">'+fmt(totalOffset)+'</div><div class="m-sub">'+fmt(effBal*dailyRate)+' saved today vs no offset</div></div>'
+    +'<div class="metric blue"><div class="m-lbl">Daily interest</div><div class="m-val">'+fmt(dailyInt)+'</div><div class="m-sub">on '+fmt(effBal)+' effective</div></div>'
     +'<div class="metric"><div class="m-lbl">Payoff time</div><div class="m-val">'+(withOff.done?fmtY(withOff.n,freq):'50y+')+'</div><div class="m-sub">with current offsets</div></div>'
     +equityHTML;
   renderBalanceChart(balance,rate,pmt,freq,totalOffset);
@@ -1469,9 +1485,30 @@ function addReconcileEntry(){
 
   // Remove existing entry for same month if any
   reconcileEntries = reconcileEntries.filter(e=>e.month!==monthVal);
+  const result = calcMonthEstimate(yearNum, monthNum);
+  const estimated = result.totalInterest;
+  const delta = parseFloat((actual - estimated).toFixed(2));
+
   reconcileEntries.push({ id:Date.now(), month:monthVal, actual, chargeDate, note,
-    year:yearNum, monthIndex:monthNum });
+    year:yearNum, monthIndex:monthNum, estimated, delta });
   reconcileEntries.sort((a,b)=>b.month.localeCompare(a.month));
+
+  // If there's a meaningful difference, post a balance adjustment log entry
+  if(Math.abs(delta) >= 0.01){
+    const adjustEntry = {
+      id: Date.now()+1,
+      type: 'interest-charge',
+      date: chargeDate || monthVal+'-'+new Date(yearNum, monthNum+1, 0).getDate().toString().padStart(2,'0'),
+      amount: delta,
+      note: `Reconcile adjustment for ${new Date(yearNum, monthNum, 1).toLocaleDateString('en-AU',{month:'long',year:'numeric'})} — actual $${actual.toFixed(2)} vs estimated $${estimated.toFixed(2)}`
+    };
+    // Remove any existing reconcile adjustment for this month
+    const existing = logEntries.findIndex(e=>
+      e.type==='interest-charge' && e.note && e.note.startsWith('Reconcile adjustment for '+new Date(yearNum, monthNum, 1).toLocaleDateString('en-AU',{month:'long',year:'numeric'}))
+    );
+    if(existing>=0) logEntries.splice(existing,1);
+    if(delta!==0) logEntries.unshift(adjustEntry);
+  }
   API.save();
 
   renderReconcileAnalysis(yearNum, monthNum, actual, monthVal);
@@ -1502,8 +1539,8 @@ function renderReconcileAnalysis(yearNum, monthNum, actual, monthVal){
     const pastStyle = !d.isPast ? 'opacity:0.5' : '';
     return `<tr style="${pastStyle}">
       <td style="text-align:left;padding:3px 8px;font-size:12px;color:var(--muted)">${d.day} ${new Date(d.date+'T00:00:00').toLocaleDateString('en-AU',{weekday:'short'})}</td>
-      <td style="padding:3px 8px;text-align:right;font-size:12px">${fmtS(d.effBal)}</td>
-      <td style="padding:3px 8px;text-align:right;font-size:12px">${fmtS(d.totalOffset)}</td>
+      <td style="padding:3px 8px;text-align:right;font-size:12px">${fmt(d.effBal)}</td>
+      <td style="padding:3px 8px;text-align:right;font-size:12px">${fmt(d.totalOffset)}</td>
       <td style="padding:3px 8px;text-align:right;font-size:12px">${fmt(d.dayInterest)}</td>
       <td style="padding:3px 8px;text-align:right;font-size:12px;color:var(--muted)">${fmt(d.runningTotal)}</td>
       <td style="padding:3px 8px;width:80px">
@@ -1691,7 +1728,7 @@ function renderPropValueLog(){
         }
         return '<tr>'
           + '<td><span class="date-badge">'+e.date+'</span></td>'
-          + '<td>'+fmtS(e.value)+'</td>'
+          + '<td>'+fmt(e.value)+'</td>'
           + '<td>'+growthStr+'</td>'
           + '<td>'+sinceLastStr+'</td>'
           + '<td style="color:var(--muted)">'+e.note+'</td>'

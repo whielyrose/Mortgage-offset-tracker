@@ -23,7 +23,7 @@ The simplest option. Download a single HTML file, open it in any browser, and it
 Best for: individuals who want to track their mortgage on one device and don't need to sync with any other tools.
 
 1. Download `mortgage-tracker-standalone.html` from the releases section
-2. Open it in Chrome, Edge, or Safari
+2. Open it in Chrome, Edge, Firefox, or Safari
 3. Enter your mortgage details in the **Mortgage Setup** tab
 4. Start logging your offset balances in the **Daily Log** tab
 

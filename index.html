@@ -340,15 +340,34 @@ html,body{min-height:100%;background:var(--bg);color:var(--text);font-family:-ap
 <div class="toast" id="toast"></div>
 
 <script>
-/* ─── Storage ─── */
-const DB = {
-  get(k,def=null){ try{ const v=localStorage.getItem('mgt_'+k); return v===null?def:JSON.parse(v) }catch{return def} },
-  set(k,v){ try{ localStorage.setItem('mgt_'+k,JSON.stringify(v)) }catch{} },
-  del(k){ localStorage.removeItem('mgt_'+k) }
+/* ─── API Storage ─── */
+let _saveTimer = null;
+const API = {
+  async load(){
+    try{
+      const r = await fetch('/api/data');
+      if(!r.ok) throw new Error('load failed');
+      return await r.json();
+    }catch(e){
+      console.warn('API load failed, using defaults',e);
+      return null;
+    }
+  },
+  save(){
+    clearTimeout(_saveTimer);
+    _saveTimer = setTimeout(async ()=>{
+      try{
+        await fetch('/api/data',{
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({settings,log:logEntries})
+        });
+      }catch(e){ console.warn('API save failed',e); }
+    }, 600);
+  }
 };
 
-/* ─── State ─── */
-let settings = DB.get('settings',{
+const defaultSettings = {
   loanAmount:550000, balance:520000, rate:6.09, termYears:30,
   startDate:'2022-07-01', repayment:1100, freq:26, lastPayDate:'2026-05-27',
   offsets:[
@@ -356,15 +375,18 @@ let settings = DB.get('settings',{
     {name:'Savings account',balance:35000},
     {name:'Offset account 3',balance:8000}
   ]
-});
-let logEntries = DB.get('log', []);
+};
+
+/* ─── State ─── */
+let settings = {...defaultSettings};
+let logEntries = [];
 let currentLogType = 'offset';
 let balChartInst = null, dailyChartInst = null, histChartInst = null;
 
 function saveSetting(k,v){
   const num=['loanAmount','balance','rate','termYears','repayment'];
   settings[k] = num.includes(k) ? (parseFloat(v)||0) : v;
-  DB.set('settings', settings);
+  API.save();
 }
 
 /* ─── Nav ─── */
@@ -497,13 +519,13 @@ function updateRepayDay(){
 function renderOffsets(){
   document.getElementById('offsetRows').innerHTML=(settings.offsets||[]).map((o,i)=>`
     <div class="offset-row">
-      <input type="text" value="${o.name}" placeholder="Account name" oninput="settings.offsets[${i}].name=this.value;DB.set('settings',settings)">
-      <input type="number" value="${o.balance}" min="0" placeholder="Balance" oninput="settings.offsets[${i}].balance=parseFloat(this.value)||0;DB.set('settings',settings);recalc()">
+      <input type="text" value="${o.name}" placeholder="Account name" oninput="settings.offsets[${i}].name=this.value;API.save()">
+      <input type="number" value="${o.balance}" min="0" placeholder="Balance" oninput="settings.offsets[${i}].balance=parseFloat(this.value)||0;API.save();recalc()">
       <button class="btn icon-only" onclick="removeOffset(${i})" aria-label="Remove">✕</button>
     </div>`).join('');
 }
-function addOffset(){ if(!settings.offsets) settings.offsets=[]; settings.offsets.push({name:'New account',balance:0}); DB.set('settings',settings); renderOffsets(); }
-function removeOffset(i){ settings.offsets.splice(i,1); DB.set('settings',settings); renderOffsets(); recalc(); }
+function addOffset(){ if(!settings.offsets) settings.offsets=[]; settings.offsets.push({name:'New account',balance:0}); API.save(); renderOffsets(); }
+function removeOffset(i){ settings.offsets.splice(i,1); API.save(); renderOffsets(); recalc(); }
 
 /* ─── Load settings into form ─── */
 function loadSettingsForm(){
@@ -583,7 +605,7 @@ function addLogEntry(){
     entry={...entry,amount};
   }
   logEntries.unshift(entry);
-  DB.set('log',logEntries);
+  API.save();
   renderLogForm();
   renderLogList();
   recalc();
@@ -592,7 +614,7 @@ function addLogEntry(){
 
 function deleteLogEntry(id){
   logEntries=logEntries.filter(e=>e.id!==id);
-  DB.set('log',logEntries);
+  API.save();
   renderLogList();
   recalc();
   toast('Entry removed');
@@ -1209,8 +1231,7 @@ function importData(input){
       const data=JSON.parse(e.target.result);
       if(data.settings) settings=data.settings;
       if(data.log) logEntries=data.log;
-      DB.set('settings',settings);
-      DB.set('log',logEntries);
+      API.save();
       loadSettingsForm();
       renderLogList();
       recalc();
@@ -1222,8 +1243,7 @@ function importData(input){
 }
 function confirmClearData(){
   if(confirm('Clear ALL data including log entries? This cannot be undone.')){
-    localStorage.clear();
-    location.reload();
+    fetch('/api/data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({settings:null,log:[]})}).then(()=>location.reload());
   }
 }
 
@@ -1246,11 +1266,41 @@ if('serviceWorker' in navigator){
   navigator.serviceWorker.register('sw.js').catch(()=>{});
 }
 
-/* ─── Init ─── */
-loadSettingsForm();
-renderLogForm();
-renderLogList();
-recalc();
+/* ─── Init — load from server then render ─── */
+async function init(){
+  const el = document.getElementById('page-dashboard');
+  el.innerHTML = '<div style="padding:40px;text-align:center;color:var(--muted)">⏳ Loading data from server…</div>';
+  const data = await API.load();
+  if(data){
+    if(data.settings) settings = {...defaultSettings, ...data.settings};
+    if(data.log)      logEntries = data.log;
+  }
+  // Restore dashboard
+  el.innerHTML = `
+    <div class="card">
+      <div class="card-title"><span>📊</span> Today's snapshot</div>
+      <div id="dash-metrics" class="g4" style="margin-bottom:14px"></div>
+      <div id="next-pmt-banner"></div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span>📈</span> Balance over time</div>
+      <div style="display:flex;flex-wrap:wrap;gap:14px;margin-bottom:12px;font-size:12px;color:var(--muted)">
+        <span style="display:flex;align-items:center;gap:5px"><span style="width:16px;height:2px;background:#1D9E75;display:inline-block"></span>Actual / projected</span>
+        <span style="display:flex;align-items:center;gap:5px"><span style="width:16px;height:2px;background:#185fa5;display:inline-block;border-top:2px dashed #185fa5;height:0"></span>No-offset projection</span>
+      </div>
+      <div class="chart-wrap" style="height:220px"><canvas id="balChart" role="img" aria-label="Loan balance over time">Balance chart.</canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span>💸</span> Daily interest this month</div>
+      <div class="chart-wrap" style="height:160px"><canvas id="dailyChart" role="img" aria-label="Daily interest accrual">Daily interest.</canvas></div>
+      <div id="month-summary" style="margin-top:10px;font-size:12px;color:var(--muted)"></div>
+    </div>`;
+  loadSettingsForm();
+  renderLogForm();
+  renderLogList();
+  recalc();
+}
+init();
 </script>
 </body>
 </html>

@@ -1,7 +1,20 @@
 services:
-  mortgage-tracker:
-    image: ghcr.io/YOUR_GITHUB_USERNAME/mortgage-tracker:latest
-    container_name: mortgage-tracker
+
+  frontend:
+    image: ghcr.io/whielyrose/mortgage-tracker-frontend:latest
+    container_name: mortgage-tracker-frontend
     restart: unless-stopped
     ports:
       - "8765:80"
+    depends_on:
+      - api
+
+  api:
+    image: ghcr.io/whielyrose/mortgage-tracker-api:latest
+    container_name: mortgage-tracker-api
+    restart: unless-stopped
+    volumes:
+      - mortgage_data:/data
+
+volumes:
+  mortgage_data:

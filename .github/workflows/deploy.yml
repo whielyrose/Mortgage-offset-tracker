@@ -1,4 +1,4 @@
-name: Build and push Docker image
+name: Build and push Docker images
 
 on:
   push:
@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write       # needed to push to ghcr.io
+      packages: write
 
     steps:
       - name: Checkout
@@ -21,13 +21,24 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}   # built-in, no setup needed
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push image
+      - name: Build and push frontend image
         uses: docker/build-push-action@v5
         with:
           context: .
+          dockerfile: Dockerfile
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/mortgage-tracker:latest
-            ghcr.io/${{ github.repository_owner }}/mortgage-tracker:${{ github.sha }}
+            ghcr.io/${{ github.repository_owner }}/mortgage-tracker-frontend:latest
+            ghcr.io/${{ github.repository_owner }}/mortgage-tracker-frontend:${{ github.sha }}
+
+      - name: Build and push API image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./api
+          dockerfile: ./api/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/mortgage-tracker-api:latest
+            ghcr.io/${{ github.repository_owner }}/mortgage-tracker-api:${{ github.sha }}

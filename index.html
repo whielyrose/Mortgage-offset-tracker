@@ -219,7 +219,7 @@ html,body{min-height:100%;background:var(--bg);color:var(--text);font-family:-ap
 <div class="page active" id="page-dashboard">
   <div class="card">
     <div class="card-title"><span>📊</span> Today's snapshot</div>
-    <div id="dash-metrics" class="g4" style="margin-bottom:14px"></div>
+    <div id="dash-metrics" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:14px"></div>
     <div id="next-pmt-banner"></div>
   </div>
   <div class="card">
@@ -297,6 +297,24 @@ html,body{min-height:100%;background:var(--bg);color:var(--text);font-family:-ap
     <p style="font-size:12px;color:var(--muted);margin-bottom:12px">Set your base account balances here. Use the Daily Log to record actual day-to-day changes.</p>
     <div id="offsetRows"></div>
     <button class="btn small" onclick="addOffset()" style="margin-top:4px">+ Add account</button>
+  </div>
+
+  <div class="card">
+    <div class="card-title"><span>🏡</span> Property value</div>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:12px">Enter your estimated property value to track equity. Update it whenever you get a new estimate from Domain, realestate.com.au, or a valuer.</p>
+    <div class="g2">
+      <div class="field">
+        <label>Estimated property value ($)</label>
+        <input type="number" id="s-propValue" min="0" step="5000" placeholder="e.g. 650000"
+          oninput="saveSetting('propValue',this.value);recalc()">
+        <div class="hint">Last updated: <span id="s-propValueDate">—</span></div>
+      </div>
+      <div class="field">
+        <label>Value last updated</label>
+        <input type="date" id="s-propValueDate" oninput="saveSetting('propValueDate',this.value);recalc()">
+        <div class="hint">Track when you last got an estimate.</div>
+      </div>
+    </div>
   </div>
 
   <div class="card">
@@ -433,7 +451,7 @@ const API = {
 
 const defaultSettings = {
   loanAmount:550000, balance:520000, rate:6.09, termYears:30,
-  startDate:'2022-07-01', repayment:1100, freq:26, lastPayDate:'2026-05-27', actualMin:0,
+  startDate:'2022-07-01', repayment:1100, freq:26, lastPayDate:'2026-05-27', actualMin:0, propValue:0, propValueDate:'',
   offsets:[
     {name:'Everyday account',balance:12000},
     {name:'Savings account',balance:35000},
@@ -594,13 +612,24 @@ function removeOffset(i){ settings.offsets.splice(i,1); API.save(); renderOffset
 
 /* ─── Load settings into form ─── */
 function loadSettingsForm(){
-  ['loanAmount','balance','rate','termYears','startDate','repayment','actualMin'].forEach(k=>{
+  ['loanAmount','balance','rate','termYears','startDate','repayment','actualMin','propValue','propValueDate'].forEach(k=>{
     const el=document.getElementById('s-'+k);
     if(el) el.value=settings[k]??'';
   });
   document.getElementById('s-freq').value=settings.freq||26;
   updateRepayDay();
   renderOffsets();
+  // Update property value date hint
+  const pvd = document.getElementById('s-propValueDate');
+  const pvdHint = document.getElementById('s-propValueDate') && document.querySelector('#s-propValue ~ .hint span');
+  if(settings.propValueDate){
+    const el = document.getElementById('s-propValueDate');
+    if(el) el.value = settings.propValueDate;
+    const hint = document.getElementById('s-propValue')?.parentElement?.querySelector('.hint');
+    if(hint) hint.innerHTML = 'Last updated: <span id="s-propValueDate-hint">'
+      + new Date(settings.propValueDate+'T00:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'})
+      + '</span>';
+  }
 }
 
 /* ─── Log type form ─── */
@@ -748,14 +777,25 @@ function recalc(){
   const banner=document.getElementById('next-pmt-banner');
   if(banner) banner.innerHTML=`<div class="next-pmt">⏰ Next ${freqLabel(freq).toLowerCase()} repayment of <strong>${fmt(pmt)}</strong> is due <strong>${nxtStr}</strong> — ${daysLeft} day${daysLeft!==1?'s':''} away</div>`;
 
-  const metrics=document.getElementById('dash-metrics');
-  if(metrics) metrics.innerHTML=`
-    <div class="metric"><div class="m-lbl">Outstanding balance</div><div class="m-val">${fmtS(balance)}</div><div class="m-sub">${fmtS(totalOffset)} offset applied</div></div>
-    <div class="metric blue"><div class="m-lbl">Daily interest</div><div class="m-val">${fmt(dailyInt)}</div><div class="m-sub">on ${fmtS(effBal)} effective</div></div>
-    <div class="metric"><div class="m-lbl">Payoff time</div><div class="m-val">${withOff.done?fmtY(withOff.n,freq):'50y+'}</div><div class="m-sub">with current offsets</div></div>
-    <div class="metric green"><div class="m-lbl">Offset saving</div><div class="m-val">${fmtS(intSaved)}</div><div class="m-sub">${timeSaved>0?fmtY(timeSaved,freq)+' sooner':''}</div></div>
-  `;
+    const propValue = parseFloat(settings.propValue)||0;
+  const equity = propValue > 0 ? propValue - balance : null;
+  const equityPct = propValue > 0 ? (equity/propValue*100) : null;
+  const lvr = propValue > 0 ? (balance/propValue*100) : null;
+  const lvrColour = lvr===null ? '' : lvr<=60 ? 'green' : lvr<=80 ? 'amber' : 'red';
+  const lvrNote   = lvr===null ? '' : lvr<=60 ? '🟢 Great — below 60%' : lvr<=80 ? '🟡 Under 80% — refinance eligible' : '🔴 Above 80% — LMI may apply';
+  const equityHTML = propValue > 0
+    ? '<div class="metric '+lvrColour+'"><div class="m-lbl">Equity</div><div class="m-val">'+fmtS(equity)+'</div><div class="m-sub">'+equityPct.toFixed(1)+'% of property value</div></div>'
+      + '<div class="metric '+lvrColour+'"><div class="m-lbl">LVR</div><div class="m-val">'+lvr.toFixed(1)+'%</div><div class="m-sub">'+lvrNote+'</div></div>'
+    : '<div class="metric" style="opacity:0.5"><div class="m-lbl">Equity</div><div class="m-val">—</div><div class="m-sub"><a href="#" onclick="showPage('settings');return false;" style="color:var(--green-mid);font-size:12px">Add property value →</a></div></div>'
+      + '<div class="metric" style="opacity:0.5"><div class="m-lbl">LVR</div><div class="m-val">—</div><div class="m-sub">Set in Mortgage Setup</div></div>';
 
+  const metrics=document.getElementById('dash-metrics');
+  if(metrics) metrics.innerHTML=
+    '<div class="metric"><div class="m-lbl">Outstanding balance</div><div class="m-val">'+fmtS(balance)+'</div><div class="m-sub">'+fmtS(totalOffset)+' in offset</div></div>'
+    +'<div class="metric green"><div class="m-lbl">Total offset balance</div><div class="m-val">'+fmtS(totalOffset)+'</div><div class="m-sub">'+fmt(effBal*dailyRate)+' saved today vs no offset</div></div>'
+    +'<div class="metric blue"><div class="m-lbl">Daily interest</div><div class="m-val">'+fmt(dailyInt)+'</div><div class="m-sub">on '+fmtS(effBal)+' effective</div></div>'
+    +'<div class="metric"><div class="m-lbl">Payoff time</div><div class="m-val">'+(withOff.done?fmtY(withOff.n,freq):'50y+')+'</div><div class="m-sub">with current offsets</div></div>'
+    +equityHTML;
   renderBalanceChart(balance,rate,pmt,freq,totalOffset);
   renderDailyChart(effBal,rate);
 }
@@ -1614,7 +1654,7 @@ async function init(){
   el.innerHTML = `
     <div class="card">
       <div class="card-title"><span>📊</span> Today's snapshot</div>
-      <div id="dash-metrics" class="g4" style="margin-bottom:14px"></div>
+      <div id="dash-metrics" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:14px"></div>
       <div id="next-pmt-banner"></div>
     </div>
     <div class="card">

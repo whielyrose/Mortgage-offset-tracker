@@ -227,6 +227,11 @@ html,body{min-height:100%;background:var(--bg);color:var(--text);font-family:-ap
     <div id="dash-metrics" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:14px"></div>
     <div id="next-pmt-banner"></div>
   </div>
+  <div class="card" id="yesterday-card" style="display:none">
+    <div class="card-title"><span>🕐</span> Yesterday's snapshot <span id="yesterday-date" style="font-size:11px;font-weight:400;color:var(--muted);margin-left:6px"></span></div>
+    <div id="yesterday-metrics" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:10px"></div>
+    <div id="yesterday-delta" style="font-size:12px;color:var(--muted)"></div>
+  </div>
   <div class="card">
     <div class="card-title"><span>📈</span> Balance over time</div>
     <div style="display:flex;flex-wrap:wrap;gap:14px;margin-bottom:12px;font-size:12px;color:var(--muted)">
@@ -888,6 +893,110 @@ function renderLogList(){
   }</tbody></table>`;
 }
 
+
+/* ─── Yesterday's snapshot ─── */
+function getYesterdayString(){
+  const d = new Date();
+  d.setDate(d.getDate()-1);
+  return d.toISOString().slice(0,10);
+}
+
+function getOffsetForDate(dateStr){
+  // Same logic as getTotalOffset but for a specific date
+  const offsetLogs = logEntries
+    .filter(e=>e.type==='offset' && e.date<=dateStr)
+    .sort((a,b)=>b.date.localeCompare(a.date));
+
+  // Check for auto-sync total first
+  const autoSync = offsetLogs.filter(e=>e.account==='All on-budget accounts (auto-sync)');
+  if(autoSync.length) return parseFloat(autoSync[0].balance)||0;
+
+  // Fall back to per-account
+  const latestPerAccount = {};
+  (settings.offsets||[]).forEach(o=>{ latestPerAccount[o.name]=o.balance; });
+  offsetLogs.forEach(e=>{
+    if(e.account!=='All on-budget accounts (auto-sync)')
+      latestPerAccount[e.account] = parseFloat(e.balance)||0;
+  });
+  return Object.values(latestPerAccount).reduce((a,b)=>a+b,0);
+}
+
+function getBalanceForDate(dateStr){
+  // getAdjustedBalance but only applying entries up to and including dateStr
+  let bal = settings.balance;
+  logEntries
+    .filter(e=>(e.type==='repayment'||e.type==='extra'||e.type==='interest-charge') && e.date<=dateStr)
+    .sort((a,b)=>a.date.localeCompare(b.date))
+    .forEach(e=>{
+      const amt = parseFloat(e.amount||0);
+      if(e.type==='repayment'||e.type==='extra') bal = Math.max(0, bal-amt);
+      else if(e.type==='interest-charge') bal = bal+amt;
+    });
+  return Math.max(0, bal);
+}
+
+function getRateForDate(dateStr){
+  const rateLogs = logEntries
+    .filter(e=>e.type==='rate' && e.date<=dateStr)
+    .sort((a,b)=>b.date.localeCompare(a.date));
+  return rateLogs.length ? parseFloat(rateLogs[0].rate)||settings.rate : settings.rate;
+}
+
+function renderYesterdaySnapshot(){
+  const card = document.getElementById('yesterday-card');
+  if(!card) return;
+
+  const yStr = getYesterdayString();
+
+  // Check if we have any log entry from yesterday or before
+  const hasData = logEntries.some(e=>e.date<=yStr);
+  if(!hasData){ card.style.display='none'; return; }
+
+  card.style.display='';
+  document.getElementById('yesterday-date').textContent =
+    new Date(yStr+'T00:00:00').toLocaleDateString('en-AU',{weekday:'long',day:'numeric',month:'long'});
+
+  const yBalance = getBalanceForDate(yStr);
+  const yOffset  = getOffsetForDate(yStr);
+  const yRate    = getRateForDate(yStr);
+  const yEffBal  = Math.max(0, yBalance - yOffset);
+  const yDailyInt= yEffBal * (yRate/100/365);
+
+  // Today's figures for comparison
+  const todayBalance = getAdjustedBalance();
+  const todayOffset  = getTotalOffset();
+  const todayRate    = getEffectiveRate()/100;
+  const todayEffBal  = Math.max(0, todayBalance - todayOffset);
+  const todayDailyInt= todayEffBal * (todayRate/365);
+
+  function delta(today, yesterday, fmt_fn, lowerIsBetter=false){
+    const diff = today - yesterday;
+    if(Math.abs(diff) < 0.005) return '<span style="color:var(--muted)">No change</span>';
+    const better = lowerIsBetter ? diff < 0 : diff > 0;
+    const colour = better ? 'var(--green-mid)' : 'var(--red)';
+    const sign = diff > 0 ? '+' : '';
+    return `<span style="color:${colour}">${sign}${fmt_fn(diff)}</span>`;
+  }
+
+  document.getElementById('yesterday-metrics').innerHTML =
+    '<div class="metric"><div class="m-lbl">Balance</div><div class="m-val">'+fmt(yBalance)+'</div><div class="m-sub" style="color:var(--muted)">'+delta(todayBalance,yBalance,fmt,true)+' today</div></div>'
+    +'<div class="metric"><div class="m-lbl">Offset total</div><div class="m-val">'+fmt(yOffset)+'</div><div class="m-sub" style="color:var(--muted)">'+delta(todayOffset,yOffset,fmt)+' today</div></div>'
+    +'<div class="metric blue"><div class="m-lbl">Daily interest</div><div class="m-val">'+fmt(yDailyInt)+'</div><div class="m-sub" style="color:var(--muted)">'+delta(todayDailyInt,yDailyInt,fmt,true)+' today</div></div>';
+
+  // Summary line
+  const offsetDiff = todayOffset - yOffset;
+  const intDiff = todayDailyInt - yDailyInt;
+  const summaryParts = [];
+  if(Math.abs(offsetDiff) >= 0.01){
+    summaryParts.push(`Offset ${offsetDiff>0?'increased':'decreased'} by <strong>${fmt(Math.abs(offsetDiff))}</strong>`);
+  }
+  if(Math.abs(intDiff) >= 0.001){
+    summaryParts.push(`daily interest ${intDiff>0?'up':'down'} <strong>${fmt(Math.abs(intDiff))}</strong>`);
+  }
+  document.getElementById('yesterday-delta').innerHTML =
+    summaryParts.length ? summaryParts.join(' · ') : 'No changes since yesterday.';
+}
+
 /* ─── Dashboard recalc ─── */
 function recalc(){
   const rate=getEffectiveRate()/100;
@@ -951,6 +1060,7 @@ function recalc(){
   renderDailyChart(effBal,rate);
   renderPropValueLog();
   renderEquityChart();
+  renderYesterdaySnapshot();
 }
 
 function renderBalanceChart(balance,rate,pmt,freq,totalOffset){

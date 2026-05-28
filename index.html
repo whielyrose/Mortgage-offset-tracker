@@ -203,6 +203,10 @@ html,body{min-height:100%;background:var(--bg);color:var(--text);font-family:-ap
     <div class="topbar-sub">Offset mortgage calculator</div>
   </div>
   <div class="topbar-space"></div>
+  <span id="sync-indicator" style="font-size:11px;color:var(--muted);display:none">
+    <span id="sync-dot" style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--subtle);margin-right:4px;vertical-align:middle"></span>
+    <span id="sync-label">—</span>
+  </span>
   <button class="install-btn" id="installBtn" onclick="installPWA()">⬇ Install App</button>
 </div>
 
@@ -2331,8 +2335,9 @@ async function init(){
     <div class="card">
       <div class="card-title"><span>📈</span> Balance over time</div>
       <div style="display:flex;flex-wrap:wrap;gap:14px;margin-bottom:12px;font-size:12px;color:var(--muted)">
-        <span style="display:flex;align-items:center;gap:5px"><span style="width:16px;height:2px;background:#1D9E75;display:inline-block"></span>Actual / projected</span>
+        <span style="display:flex;align-items:center;gap:5px"><span style="width:16px;height:2px;background:#1D9E75;display:inline-block"></span>Projected (with offset)</span>
         <span style="display:flex;align-items:center;gap:5px"><span style="width:16px;height:2px;background:#185fa5;display:inline-block;border-top:2px dashed #185fa5;height:0"></span>No-offset projection</span>
+        <span style="display:flex;align-items:center;gap:5px"><span style="width:16px;height:2px;background:#F59E0B;display:inline-block"></span>Actual logged balance</span>
       </div>
       <div class="chart-wrap" style="height:220px"><canvas id="balChart" role="img" aria-label="Loan balance over time">Balance chart.</canvas></div>
     </div>
@@ -2347,6 +2352,70 @@ async function init(){
   recalc();
 }
 init();
+
+/* ─── Background poll — reload data from server if it has changed ─── */
+let _lastDataHash = '';
+function dataHash(data){
+  // Simple hash based on log entry count + last entry id + settings balance
+  const logLen = (data.log||[]).length;
+  const lastId = logLen > 0 ? (data.log[0].id||0) : 0;
+  const bal    = data.settings?.balance||0;
+  return `${logLen}-${lastId}-${bal}`;
+}
+
+async function pollForUpdates(){
+  try{
+    const data = await API.load();
+    if(!data) return;
+    const h = dataHash(data);
+    if(_lastDataHash && h !== _lastDataHash){
+      // Data changed on server — reload into memory and recalc
+      if(data.settings)     settings         = {...defaultSettings, ...data.settings};
+      if(data.log)          logEntries       = data.log;
+      if(data.reconcile)    reconcileEntries = data.reconcile;
+      if(data.propValueLog) propValueLog     = data.propValueLog;
+      loadSettingsForm();
+      renderLogList();
+      recalc();
+      histData = null; // invalidate cached history
+      showSyncIndicator('updated');
+      console.log('Auto-sync: data updated from server');
+    }
+    _lastDataHash = h;
+  }catch(e){
+    console.warn('Poll failed:', e.message);
+  }
+}
+
+function showSyncIndicator(state){
+  const ind   = document.getElementById('sync-indicator');
+  const dot   = document.getElementById('sync-dot');
+  const label = document.getElementById('sync-label');
+  if(!ind) return;
+  ind.style.display = '';
+  const now = new Date().toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit'});
+  if(state==='updated'){
+    dot.style.background  = '#1D9E75';
+    label.textContent     = 'Synced ' + now;
+    setTimeout(()=>{ dot.style.background = 'var(--subtle)'; }, 3000);
+  } else {
+    dot.style.background = 'var(--subtle)';
+    label.textContent    = 'Synced ' + now;
+  }
+}
+
+// Set initial hash after init, then poll every 5 minutes
+setTimeout(async ()=>{
+  try{
+    const data = await API.load();
+    if(data){
+      _lastDataHash = dataHash(data);
+      showSyncIndicator('ok');
+    }
+  }catch(e){}
+  // Poll every 5 minutes
+  setInterval(pollForUpdates, 5 * 60 * 1000);
+}, 2000); // wait 2s after init before starting
 </script>
 </body>
 </html>

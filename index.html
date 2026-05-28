@@ -2353,39 +2353,10 @@ async function init(){
 }
 init();
 
-/* ─── Background poll — reload data from server if it has changed ─── */
-let _lastDataHash = '';
-function dataHash(data){
-  // Simple hash based on log entry count + last entry id + settings balance
-  const logLen = (data.log||[]).length;
-  const lastId = logLen > 0 ? (data.log[0].id||0) : 0;
-  const bal    = data.settings?.balance||0;
-  return `${logLen}-${lastId}-${bal}`;
-}
-
-async function pollForUpdates(){
-  try{
-    const data = await API.load();
-    if(!data) return;
-    const h = dataHash(data);
-    if(_lastDataHash && h !== _lastDataHash){
-      // Data changed on server — reload into memory and recalc
-      if(data.settings)     settings         = {...defaultSettings, ...data.settings};
-      if(data.log)          logEntries       = data.log;
-      if(data.reconcile)    reconcileEntries = data.reconcile;
-      if(data.propValueLog) propValueLog     = data.propValueLog;
-      loadSettingsForm();
-      renderLogList();
-      recalc();
-      histData = null; // invalidate cached history
-      showSyncIndicator('updated');
-      console.log('Auto-sync: data updated from server');
-    }
-    _lastDataHash = h;
-  }catch(e){
-    console.warn('Poll failed:', e.message);
-  }
-}
+/* ─── Live updates via Server-Sent Events ─── */
+// The sync script calls POST /api/notify after posting new data.
+// The API pushes a 'sync-complete' SSE event to all open browser tabs.
+// Falls back to 5-minute polling if SSE is unavailable (e.g. standalone mode).
 
 function showSyncIndicator(state){
   const ind   = document.getElementById('sync-indicator');
@@ -2395,27 +2366,109 @@ function showSyncIndicator(state){
   ind.style.display = '';
   const now = new Date().toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit'});
   if(state==='updated'){
-    dot.style.background  = '#1D9E75';
-    label.textContent     = 'Synced ' + now;
-    setTimeout(()=>{ dot.style.background = 'var(--subtle)'; }, 3000);
-  } else {
+    dot.style.background = '#1D9E75';
+    label.textContent    = 'Updated ' + now;
+    setTimeout(()=>{ dot.style.background = 'var(--subtle)'; }, 4000);
+  } else if(state==='connected'){
+    dot.style.background = '#1D9E75';
+    label.textContent    = 'Live';
+    setTimeout(()=>{ dot.style.background = 'var(--subtle)'; }, 2000);
+  } else if(state==='polling'){
     dot.style.background = 'var(--subtle)';
     label.textContent    = 'Synced ' + now;
+  } else {
+    dot.style.background = 'var(--subtle)';
+    label.textContent    = now;
   }
 }
 
-// Set initial hash after init, then poll every 5 minutes
-setTimeout(async ()=>{
+async function reloadFromServer(){
   try{
     const data = await API.load();
-    if(data){
-      _lastDataHash = dataHash(data);
-      showSyncIndicator('ok');
-    }
+    if(!data) return;
+    if(data.settings)     settings         = {...defaultSettings, ...data.settings};
+    if(data.log)          logEntries       = data.log;
+    if(data.reconcile)    reconcileEntries = data.reconcile;
+    if(data.propValueLog) propValueLog     = data.propValueLog;
+    loadSettingsForm();
+    renderLogList();
+    recalc();
+    histData = null;
+    showSyncIndicator('updated');
+    console.log('Live update: data reloaded from server');
+  }catch(e){
+    console.warn('Reload failed:', e.message);
+  }
+}
+
+function connectSSE(){
+  // SSE only works when served from a server — not in standalone/localStorage mode
+  if(typeof localStorage !== 'undefined' && !window.location.protocol.startsWith('http')){
+    startPolling(); return;
+  }
+  try{
+    const es = new EventSource('/api/events');
+
+    es.addEventListener('connected', ()=>{
+      showSyncIndicator('connected');
+      console.log('SSE: connected to live update stream');
+    });
+
+    es.addEventListener('sync-complete', ()=>{
+      console.log('SSE: sync-complete received — reloading data');
+      reloadFromServer();
+    });
+
+    es.onerror = ()=>{
+      console.warn('SSE connection lost — falling back to polling');
+      es.close();
+      startPolling();
+    };
+  }catch(e){
+    startPolling();
+  }
+}
+
+let _pollTimer = null;
+let _lastDataHash = '';
+function dataHash(data){
+  const logLen = (data.log||[]).length;
+  const lastId = logLen > 0 ? (data.log[0].id||0) : 0;
+  return `${logLen}-${lastId}`;
+}
+async function pollOnce(){
+  try{
+    const data = await API.load();
+    if(!data) return;
+    const h = dataHash(data);
+    if(_lastDataHash && h !== _lastDataHash) await reloadFromServer();
+    _lastDataHash = h;
+    showSyncIndicator('polling');
   }catch(e){}
-  // Poll every 5 minutes
-  setInterval(pollForUpdates, 5 * 60 * 1000);
-}, 2000); // wait 2s after init before starting
+}
+function startPolling(){
+  console.log('Starting 5-minute poll fallback');
+  showSyncIndicator('polling');
+  if(_pollTimer) clearInterval(_pollTimer);
+  _pollTimer = setInterval(pollOnce, 5 * 60 * 1000);
+  pollOnce();
+}
+
+// On startup: do an immediate data reload 3 seconds after init
+// This catches any sync that ran just before the page was opened
+setTimeout(async ()=>{
+  await reloadFromServer();
+}, 3000);
+
+// Start SSE connection 2 seconds after init
+setTimeout(()=>{
+  // Only connect SSE when served from a proper server
+  if(window.location.protocol.startsWith('http') && window.location.hostname !== ''){
+    connectSSE();
+  } else {
+    startPolling();
+  }
+}, 2000);
 </script>
 </body>
 </html>

@@ -324,6 +324,15 @@ async function main() {
       propValueLog: mortgageData.propValueLog || []
     });
     console.log('✓ Mortgage tracker updated successfully');
+
+    // Notify any open browser tabs to refresh immediately
+    try{
+      const notifyResp = await fetch(`${MORTGAGE_API_URL}/api/notify`, { method: 'POST' });
+      const notifyData = await notifyResp.json();
+      console.log(`✓ Browser notification sent (${notifyData.clients} tab${notifyData.clients!==1?'s':''} connected)`);
+    }catch(e){
+      console.warn('  Browser notification failed (no tabs open or API unreachable)');
+    }
   }
 
   console.log('\n═══════════════════════════════════════════');

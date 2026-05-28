@@ -949,8 +949,10 @@ function renderYesterdaySnapshot(){
   const yStr = getYesterdayString();
 
   // Check if we have any log entry from yesterday or before
-  const hasData = logEntries.some(e=>e.date<=yStr);
-  if(!hasData){ card.style.display='none'; return; }
+  // Show if any log entries exist — yesterday uses the most recent entry
+  // on or before yesterday, falling back to base settings if none
+  const hasAnyData = logEntries.length > 0 || settings.balance > 0;
+  if(!hasAnyData){ card.style.display='none'; return; }
 
   card.style.display='';
   document.getElementById('yesterday-date').textContent =
@@ -1132,10 +1134,24 @@ function renderDailyChart(effBal,rate){
   const daysInMonth=new Date(now.getFullYear(),now.getMonth()+1,0).getDate();
   const dailyRate=rate/365;
   const labels=[],data=[],colors=[];
+  const yearStr=now.getFullYear();
+  const monthStr=String(now.getMonth()+1).padStart(2,'0');
+  const todayDay=now.getDate();
+  const curBalance=getAdjustedBalance();
   for(let d=1;d<=daysInMonth;d++){
     labels.push(d);
-    data.push(parseFloat((effBal*dailyRate).toFixed(4)));
-    colors.push(d<now.getDate()?'#9FE1CB':d===now.getDate()?'#1D9E75':'#C0DD97');
+    const dateStr=`${yearStr}-${monthStr}-${String(d).padStart(2,'0')}`;
+    // Use historical offset for past days, current offset for today/future
+    let dayEffBal;
+    if(d<todayDay){
+      const histOffset=getOffsetForDate(dateStr);
+      const histBalance=getBalanceForDate(dateStr);
+      dayEffBal=Math.max(0,histBalance-histOffset);
+    } else {
+      dayEffBal=effBal;
+    }
+    data.push(parseFloat((dayEffBal*dailyRate).toFixed(4)));
+    colors.push(d<todayDay?'#9FE1CB':d===todayDay?'#1D9E75':'#C0DD97');
   }
   if(dailyChartInst) dailyChartInst.destroy();
   const dailyCanvas=document.getElementById('dailyChart');
@@ -2475,6 +2491,11 @@ async function init(){
       <div class="card-title"><span>📊</span> Today's snapshot</div>
       <div id="dash-metrics" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:14px"></div>
       <div id="next-pmt-banner"></div>
+    </div>
+    <div class="card" id="yesterday-card" style="display:none">
+      <div class="card-title"><span>🕐</span> Yesterday's snapshot <span id="yesterday-date" style="font-size:11px;font-weight:400;color:var(--muted);margin-left:6px"></span></div>
+      <div id="yesterday-metrics" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:10px"></div>
+      <div id="yesterday-delta" style="font-size:12px;color:var(--muted)"></div>
     </div>
     <div class="card">
       <div class="card-title"><span>📈</span> Balance over time</div>

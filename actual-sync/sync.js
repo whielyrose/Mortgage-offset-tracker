@@ -142,13 +142,22 @@ function calcMonthInterest(monthStr, mortgageData) {
     let dayRate = rate;
     rateLogs.forEach(r => { if (r.date <= dateStr) dayRate = parseFloat(r.rate) / 100; });
 
-    // Offset total for this day
-    const latestPerAccount = {};
-    (settings.offsets || []).forEach(o => { latestPerAccount[o.name] = o.balance; });
-    offsetLogs.forEach(e => {
-      if (e.date <= dateStr) latestPerAccount[e.account] = parseFloat(e.balance) || 0;
-    });
-    const totalOffset = Object.values(latestPerAccount).reduce((a, b) => a + b, 0);
+    // Offset total for this day — check for auto-sync total first
+    let totalOffset;
+    const autoSyncForDay = offsetLogs
+      .filter(e => e.account === 'All on-budget accounts (auto-sync)' && e.date <= dateStr)
+      .sort((a, b) => b.date.localeCompare(a.date));
+    if (autoSyncForDay.length) {
+      totalOffset = parseFloat(autoSyncForDay[0].balance) || 0;
+    } else {
+      const latestPerAccount = {};
+      (settings.offsets || []).forEach(o => { latestPerAccount[o.name] = o.balance; });
+      offsetLogs.forEach(e => {
+        if (e.date <= dateStr && e.account !== 'All on-budget accounts (auto-sync)')
+          latestPerAccount[e.account] = parseFloat(e.balance) || 0;
+      });
+      totalOffset = Object.values(latestPerAccount).reduce((a, b) => a + b, 0);
+    }
     const effBal = Math.max(0, runningBalance - totalOffset);
     totalInterest += effBal * (dayRate / 365);
   }

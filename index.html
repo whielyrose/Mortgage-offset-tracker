@@ -633,7 +633,18 @@ function getEffectiveOffsets(){
   return base;
 }
 
-function getTotalOffset(){ return getEffectiveOffsets().reduce((a,o)=>a+o.balance,0); }
+function getTotalOffset(){
+  // Check for a recent auto-sync entry — it posts the total of all accounts
+  // Use it directly if it exists, rather than trying to match individual accounts
+  const autoSync = logEntries
+    .filter(e=>e.type==='offset' && e.account==='All on-budget accounts (auto-sync)')
+    .sort((a,b)=>b.date.localeCompare(a.date));
+  if(autoSync.length){
+    return parseFloat(autoSync[0].balance)||0;
+  }
+  // Fall back to summing individual account entries
+  return getEffectiveOffsets().reduce((a,o)=>a+o.balance,0);
+}
 
 /* ─── Effective rate (check for rate change log entries) ─── */
 function getEffectiveRate(){
@@ -1574,15 +1585,24 @@ function calcMonthEstimate(yearNum, monthNum){
       if(p.date===dateStr) runningBalance=Math.max(0,runningBalance-parseFloat(p.amount||0));
     });
 
-    // Offset total for this day: latest log entry per account up to this date
-    const latestPerAccount = {};
-    // Start with base settings
-    (settings.offsets||[]).forEach(o=>{ latestPerAccount[o.name]=o.balance; });
-    // Override with logged values up to this date
-    offsetLogs.forEach(e=>{
-      if(e.date<=dateStr) latestPerAccount[e.account]=parseFloat(e.balance)||0;
-    });
-    const totalOffset = Object.values(latestPerAccount).reduce((a,b)=>a+b,0);
+    // Offset total for this day: check for auto-sync total first, then per-account
+    let totalOffset;
+    const autoSyncForDay = offsetLogs
+      .filter(e=>e.account==='All on-budget accounts (auto-sync)' && e.date<=dateStr)
+      .sort((a,b)=>b.date.localeCompare(a.date));
+    if(autoSyncForDay.length){
+      // Use the most recent auto-sync total directly
+      totalOffset = parseFloat(autoSyncForDay[0].balance)||0;
+    } else {
+      // Fall back to per-account lookup
+      const latestPerAccount = {};
+      (settings.offsets||[]).forEach(o=>{ latestPerAccount[o.name]=o.balance; });
+      offsetLogs.forEach(e=>{
+        if(e.date<=dateStr && e.account!=='All on-budget accounts (auto-sync)')
+          latestPerAccount[e.account]=parseFloat(e.balance)||0;
+      });
+      totalOffset = Object.values(latestPerAccount).reduce((a,b)=>a+b,0);
+    }
     const effBal = Math.max(0, runningBalance - totalOffset);
     const dayInterest = effBal * (dayRate/365);
     totalInterest += dayInterest;

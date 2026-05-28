@@ -888,7 +888,8 @@ function recalc(){
   const dailyRate=rate/365;
   const dailyInt=effBal*dailyRate;
   const calcMinPmt=minRepayment(balance,rate,settings.termYears,freq);
-  document.getElementById('s-minPmt').value=fmt(calcMinPmt);
+  const minPmtEl=document.getElementById('s-minPmt');
+  if(minPmtEl) minPmtEl.value=fmt(calcMinPmt);
   const actualMinEl=document.getElementById('s-actualMin');
   if(actualMinEl && settings.actualMin) actualMinEl.value=settings.actualMin;
 
@@ -959,7 +960,7 @@ function renderBalanceChart(balance,rate,pmt,freq,totalOffset){
 
   if(balChartInst) balChartInst.destroy();
   const balCanvas=document.getElementById('balChart');
-  if(!balCanvas||balCanvas.offsetParent===null){balChartInst=null;return;}
+  if(!balCanvas) return;
   balChartInst=new Chart(balCanvas,{
     type:'line',
     data:{labels,datasets:[
@@ -1017,7 +1018,7 @@ function renderDailyChart(effBal,rate){
   }
   if(dailyChartInst) dailyChartInst.destroy();
   const dailyCanvas=document.getElementById('dailyChart');
-  if(!dailyCanvas||dailyCanvas.offsetParent===null){dailyChartInst=null;return;}
+  if(!dailyCanvas) return;
   dailyChartInst=new Chart(dailyCanvas,{
     type:'bar',
     data:{labels,datasets:[{label:'Daily interest',data,backgroundColor:colors,borderRadius:2}]},

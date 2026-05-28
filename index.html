@@ -958,7 +958,9 @@ function renderBalanceChart(balance,rate,pmt,freq,totalOffset){
   const actualPoints = buildActualBalanceSeries(curYear, maxYrs);
 
   if(balChartInst) balChartInst.destroy();
-  balChartInst=new Chart(document.getElementById('balChart'),{
+  const balCanvas=document.getElementById('balChart');
+  if(!balCanvas||balCanvas.offsetParent===null){balChartInst=null;return;}
+  balChartInst=new Chart(balCanvas,{
     type:'line',
     data:{labels,datasets:[
       {label:'Projected (with offset)',data:od,borderColor:'#1D9E75',backgroundColor:'rgba(29,158,117,0.08)',borderWidth:2.5,fill:true,tension:0.4,pointRadius:0,pointHoverRadius:4},
@@ -1014,7 +1016,9 @@ function renderDailyChart(effBal,rate){
     colors.push(d<now.getDate()?'#9FE1CB':d===now.getDate()?'#1D9E75':'#C0DD97');
   }
   if(dailyChartInst) dailyChartInst.destroy();
-  dailyChartInst=new Chart(document.getElementById('dailyChart'),{
+  const dailyCanvas=document.getElementById('dailyChart');
+  if(!dailyCanvas||dailyCanvas.offsetParent===null){dailyChartInst=null;return;}
+  dailyChartInst=new Chart(dailyCanvas,{
     type:'bar',
     data:{labels,datasets:[{label:'Daily interest',data,backgroundColor:colors,borderRadius:2}]},
     options:{
@@ -1300,7 +1304,9 @@ function renderHistory(){
   const chartInt  = yearKeys.map(y=>yearMap[y].interest);
   const chartPrin = yearKeys.map(y=>yearMap[y].principal);
   if(histChartInst) histChartInst.destroy();
-  histChartInst=new Chart(document.getElementById('histChart'),{
+  const histCanvas=document.getElementById('histChart');
+  if(!histCanvas||histCanvas.offsetParent===null){histChartInst=null;return;}
+  histChartInst=new Chart(histCanvas,{
     type:'bar',
     data:{labels:yearKeys,datasets:[
       {label:'Interest', data:chartInt,  backgroundColor:yearKeys.map(y=>parseInt(y)<parseInt(curYear)?'rgba(226,75,74,0.35)':'rgba(226,75,74,0.65)'),borderRadius:2},
@@ -1926,7 +1932,14 @@ function renderEquityChart(){
   }
 
   if(equityChartInst) equityChartInst.destroy();
-  equityChartInst = new Chart(document.getElementById('equityChart'),{
+  const equityCanvas = document.getElementById('equityChart');
+  if(!equityCanvas || equityCanvas.offsetParent === null){
+    // Canvas not visible (card hidden or not in DOM) — skip rendering
+    // Will re-render next time recalc runs with visible canvas
+    equityChartInst = null;
+    return;
+  }
+  equityChartInst = new Chart(equityCanvas,{
     type:'line',
     data:{labels, datasets:[
       {label:'Property value', data:propValues, borderColor:'#9F7AEA', backgroundColor:'rgba(159,122,234,0.08)',

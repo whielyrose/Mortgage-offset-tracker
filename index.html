@@ -213,6 +213,7 @@ html,body{min-height:100%;background:var(--bg);color:var(--text);font-family:-ap
   <button class="nav-tab" onclick="showPage('schedule')">Schedule</button>
   <button class="nav-tab" onclick="showPage('history')">History</button>
   <button class="nav-tab" onclick="showPage('reconcile')">Reconcile</button>
+  <button class="nav-tab" onclick="showPage('tools')">Tools</button>
 </div>
 
 <!-- DASHBOARD -->
@@ -225,8 +226,9 @@ html,body{min-height:100%;background:var(--bg);color:var(--text);font-family:-ap
   <div class="card">
     <div class="card-title"><span>📈</span> Balance over time</div>
     <div style="display:flex;flex-wrap:wrap;gap:14px;margin-bottom:12px;font-size:12px;color:var(--muted)">
-      <span style="display:flex;align-items:center;gap:5px"><span style="width:16px;height:2px;background:#1D9E75;display:inline-block"></span>Actual / projected</span>
+      <span style="display:flex;align-items:center;gap:5px"><span style="width:16px;height:2px;background:#1D9E75;display:inline-block"></span>Projected (with offset)</span>
       <span style="display:flex;align-items:center;gap:5px"><span style="width:16px;height:2px;background:#185fa5;display:inline-block;border-top:2px dashed #185fa5;height:0"></span>No-offset projection</span>
+      <span style="display:flex;align-items:center;gap:5px"><span style="width:16px;height:2px;background:#F59E0B;display:inline-block"></span>Actual logged balance</span>
     </div>
     <div class="chart-wrap" style="height:220px"><canvas id="balChart" role="img" aria-label="Loan balance over time">Balance chart.</canvas></div>
   </div>
@@ -245,6 +247,89 @@ html,body{min-height:100%;background:var(--bg);color:var(--text);font-family:-ap
     <div class="chart-wrap" style="height:220px"><canvas id="equityChart" role="img" aria-label="Property value and equity over time">Equity chart.</canvas></div>
     <div id="equity-chart-summary" style="margin-top:10px;font-size:12px;color:var(--muted)"></div>
   </div>
+</div>
+
+<!-- TOOLS -->
+<div class="page" id="page-tools">
+
+  <!-- Rate change forecaster -->
+  <div class="card">
+    <div class="card-title"><span>📈</span> Rate change forecaster</div>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:14px">Simulate how an RBA rate change would affect your mortgage. This doesn't change your actual settings.</p>
+    <div class="g2" style="margin-bottom:14px;align-items:center">
+      <div class="field">
+        <label>Simulated rate: <strong id="sim-rate-display" style="color:var(--green-mid)">6.09%</strong></label>
+        <input type="range" id="sim-rate" min="2" max="12" step="0.05" value="6.09"
+          oninput="document.getElementById('sim-rate-display').textContent=parseFloat(this.value).toFixed(2)+'%';renderRateForecaster()"
+          style="width:100%;accent-color:var(--green-mid)">
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:2px"><span>2%</span><span>12%</span></div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button class="btn small" onclick="setSimRate(-0.25)">−0.25%</button>
+        <button class="btn small" onclick="setSimRate(-0.5)">−0.50%</button>
+        <button class="btn small" onclick="setSimRate(0.25)">+0.25%</button>
+        <button class="btn small" onclick="setSimRate(0.5)">+0.50%</button>
+        <button class="btn small" onclick="resetSimRate()">Reset</button>
+      </div>
+    </div>
+    <div id="rate-forecast-results"></div>
+  </div>
+
+  <!-- Overpayment simulator -->
+  <div class="card">
+    <div class="card-title"><span>💳</span> Overpayment simulator</div>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:14px">See how paying more each fortnight affects your payoff date and total interest.</p>
+    <div class="g3" style="margin-bottom:14px">
+      <div class="field">
+        <label>Extra per <span id="op-freq-label">fortnight</span> ($)</label>
+        <input type="number" id="op-extra" min="0" step="50" value="200"
+          oninput="renderOverpayment()" placeholder="e.g. 200">
+      </div>
+      <div class="field">
+        <label>New total repayment</label>
+        <input type="text" id="op-total" readonly style="background:var(--surface3);color:var(--muted)">
+      </div>
+      <div class="field">
+        <label>Or set total repayment ($)</label>
+        <input type="number" id="op-total-input" min="0" step="50"
+          oninput="renderOverpaymentFromTotal()" placeholder="e.g. 1300">
+      </div>
+    </div>
+    <div id="overpayment-results"></div>
+  </div>
+
+  <!-- Offset target calculator -->
+  <div class="card">
+    <div class="card-title"><span>🎯</span> Offset target calculator</div>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:14px">How much do you need in offset to reach a target payoff date?</p>
+    <div class="g2" style="margin-bottom:14px">
+      <div class="field">
+        <label>Target: pay off <strong id="ot-years-display">2</strong> years early</label>
+        <input type="range" id="ot-years" min="1" max="15" step="1" value="2"
+          oninput="document.getElementById('ot-years-display').textContent=this.value;renderOffsetTarget()"
+          style="width:100%;accent-color:var(--green-mid)">
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:2px"><span>1 year early</span><span>15 years early</span></div>
+      </div>
+      <div class="field">
+        <label>Or enter target payoff year</label>
+        <input type="number" id="ot-year-input" min="2025" max="2060" step="1"
+          oninput="renderOffsetTargetFromYear()" placeholder="e.g. 2040">
+      </div>
+    </div>
+    <div id="offset-target-results"></div>
+  </div>
+
+  <!-- CSV Export -->
+  <div class="card">
+    <div class="card-title"><span>📄</span> Export to CSV</div>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:14px">Download your data as spreadsheet-ready CSV files.</p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn small" onclick="exportCSV('schedule')">⬇ Full payment schedule</button>
+      <button class="btn small" onclick="exportCSV('log')">⬇ Daily log entries</button>
+      <button class="btn small" onclick="exportCSV('monthly')">⬇ Monthly summary</button>
+    </div>
+  </div>
+
 </div>
 
 <!-- SETTINGS -->
@@ -351,6 +436,7 @@ html,body{min-height:100%;background:var(--bg);color:var(--text);font-family:-ap
     <div class="card-title"><span>💾</span> Data management</div>
     <div style="display:flex;gap:10px;flex-wrap:wrap">
       <button class="btn small" onclick="exportData()">⬇ Export data (JSON)</button>
+      <button class="btn small" onclick="exportCSV('schedule')">⬇ Payment schedule (CSV)</button>
       <button class="btn small" onclick="document.getElementById('importFile').click()">⬆ Import data</button>
       <button class="btn small danger" onclick="confirmClearData()">🗑 Clear all data</button>
     </div>
@@ -509,13 +595,14 @@ function showPage(id){
   document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
   document.getElementById('page-'+id).classList.add('active');
   const tabs=[...document.querySelectorAll('.nav-tab')];
-  const names=['dashboard','settings','log','schedule','history','reconcile'];
+  const names=['dashboard','settings','log','schedule','history','reconcile','tools'];
   const i=names.indexOf(id);
   if(i>=0) tabs[i].classList.add('active');
   if(id==='dashboard') recalc();
   if(id==='schedule') renderSchedule();
   if(id==='history') renderHistory();
   if(id==='reconcile') renderReconcilePage();
+  if(id==='tools') renderTools();
   if(id==='settings'){ const pvd=document.getElementById('pv-date'); if(pvd&&!pvd.value) pvd.value=today(); }
 }
 
@@ -861,22 +948,54 @@ function renderBalanceChart(balance,rate,pmt,freq,totalOffset){
     od.push(yr*freq<withOff.bals.length?withOff.bals[yr*freq]:0);
     wd.push(yr*freq<without.bals.length?without.bals[yr*freq]:0);
   }
+
+  // Build actual logged balance series from interest-charge and repayment entries
+  // Group by year, take end-of-year balance from running calculation
+  const actualPoints = buildActualBalanceSeries(curYear, maxYrs);
+
   if(balChartInst) balChartInst.destroy();
   balChartInst=new Chart(document.getElementById('balChart'),{
     type:'line',
     data:{labels,datasets:[
-      {label:'With offset',data:od,borderColor:'#1D9E75',backgroundColor:'rgba(29,158,117,0.08)',borderWidth:2.5,fill:true,tension:0.4,pointRadius:0,pointHoverRadius:4},
-      {label:'No offset',data:wd,borderColor:'#185fa5',borderDash:[6,4],backgroundColor:'transparent',borderWidth:1.5,fill:false,tension:0.4,pointRadius:0,pointHoverRadius:4}
+      {label:'Projected (with offset)',data:od,borderColor:'#1D9E75',backgroundColor:'rgba(29,158,117,0.08)',borderWidth:2.5,fill:true,tension:0.4,pointRadius:0,pointHoverRadius:4},
+      {label:'No-offset projection',data:wd,borderColor:'#185fa5',borderDash:[6,4],backgroundColor:'transparent',borderWidth:1.5,fill:false,tension:0.4,pointRadius:0,pointHoverRadius:4},
+      {label:'Actual logged balance',data:actualPoints,borderColor:'#F59E0B',backgroundColor:'transparent',borderWidth:2,fill:false,tension:0.2,pointRadius:4,pointHoverRadius:6,pointBackgroundColor:'#F59E0B',pointBorderColor:'#fff',pointBorderWidth:2,spanGaps:true}
     ]},
     options:{
       responsive:true,maintainAspectRatio:false,
       interaction:{mode:'index',intersect:false},
-      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>'  '+c.dataset.label+':  $'+Math.round(c.raw).toLocaleString('en-AU')}}},
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>c.raw==null?null:'  '+c.dataset.label+':  $'+Math.round(c.raw).toLocaleString('en-AU')}}},
       scales:{
         x:{grid:{color:'rgba(128,128,128,0.07)'},ticks:{font:{size:10},maxTicksLimit:10,maxRotation:0}},
         y:{min:0,grid:{color:'rgba(128,128,128,0.07)'},ticks:{font:{size:10},callback:v=>v===0?'$0':'$'+(v/1000)+'k'}}
       }
     }
+  });
+}
+
+function buildActualBalanceSeries(curYear, maxYrs){
+  // Walk through log entries in date order to reconstruct actual running balance
+  const startBal = settings.balance;
+  const entries = logEntries
+    .filter(e=>e.type==='repayment'||e.type==='extra'||e.type==='interest-charge')
+    .sort((a,b)=>a.date.localeCompare(b.date));
+  if(!entries.length) return Array(maxYrs+1).fill(null);
+
+  // Build year → balance map
+  let bal = startBal;
+  const yearBalMap = {};
+  entries.forEach(e=>{
+    const yr = parseInt(e.date.slice(0,4));
+    const amt = parseFloat(e.amount||0);
+    if(e.type==='repayment'||e.type==='extra') bal = Math.max(0, bal-amt);
+    else if(e.type==='interest-charge') bal = bal+amt;
+    yearBalMap[yr] = bal; // last entry for that year wins
+  });
+
+  // Map to chart labels (one per year)
+  return Array.from({length:maxYrs+1},(_,i)=>{
+    const yr = curYear+i;
+    return yearBalMap[yr]!==undefined ? yearBalMap[yr] : null;
   });
 }
 
@@ -1842,6 +1961,297 @@ function renderEquityChart(){
         : '')
       + ' &nbsp;·&nbsp; '+propValueLog.length+' estimate'+(propValueLog.length!==1?'s':'')+' logged';
   }
+}
+
+
+/* ─── Tools page ─── */
+function renderTools(){
+  // Set slider to current rate
+  const slider = document.getElementById('sim-rate');
+  const rate = getEffectiveRate();
+  if(slider){ slider.value = rate; document.getElementById('sim-rate-display').textContent = rate.toFixed(2)+'%'; }
+  document.getElementById('op-freq-label').textContent = freqName(parseInt(settings.freq));
+  renderRateForecaster();
+  renderOverpayment();
+  renderOffsetTarget();
+}
+
+/* ── Rate change forecaster ── */
+function setSimRate(delta){
+  const sl=document.getElementById('sim-rate');
+  const cur=parseFloat(sl.value)||getEffectiveRate();
+  const nv=Math.min(12,Math.max(2,parseFloat((cur+delta).toFixed(2))));
+  sl.value=nv;
+  document.getElementById('sim-rate-display').textContent=nv.toFixed(2)+'%';
+  renderRateForecaster();
+}
+function resetSimRate(){
+  const r=getEffectiveRate();
+  document.getElementById('sim-rate').value=r;
+  document.getElementById('sim-rate-display').textContent=r.toFixed(2)+'%';
+  renderRateForecaster();
+}
+function renderRateForecaster(){
+  const simRate = parseFloat(document.getElementById('sim-rate')?.value)||getEffectiveRate();
+  const curRate = getEffectiveRate();
+  const balance = getAdjustedBalance();
+  const freq    = parseInt(settings.freq);
+  const pmt     = parseFloat(settings.repayment)||0;
+  const offset  = getTotalOffset();
+
+  const cur  = runSchedule(balance, curRate/100, pmt, freq, offset);
+  const sim  = runSchedule(balance, simRate/100, pmt, freq, offset);
+
+  const rateChange = simRate - curRate;
+  const intDiff    = sim.cumInt - cur.cumInt;
+  const timeDiff   = sim.n - cur.n;
+
+  // Daily interest impact
+  const curDailyInt = Math.max(0, balance - offset) * (curRate/100/365);
+  const simDailyInt = Math.max(0, balance - offset) * (simRate/100/365);
+  const dailyDiff   = simDailyInt - curDailyInt;
+
+  // New minimum repayment at simulated rate
+  const termYears = parseInt(settings.termYears)||30;
+  const simMinPmt = minRepayment(balance, simRate/100, termYears, freq);
+
+  const isUp = rateChange > 0;
+  const isSame = Math.abs(rateChange) < 0.001;
+
+  document.getElementById('rate-forecast-results').innerHTML = isSame
+    ? `<div style="background:var(--surface2);border-radius:var(--radius);padding:12px;font-size:13px;color:var(--muted)">Move the slider to simulate a rate change.</div>`
+    : `<div style="background:var(--surface2);border-radius:var(--radius-lg);padding:14px">
+      <div style="font-size:13px;font-weight:500;margin-bottom:10px;color:${isUp?'var(--red)':'var(--green-mid)'}">
+        ${isUp?'⬆':'⬇'} Rate ${isUp?'increase':'decrease'} of ${Math.abs(rateChange).toFixed(2)}% (${curRate.toFixed(2)}% → ${simRate.toFixed(2)}%)
+      </div>
+      <div class="g2" style="gap:8px;margin-bottom:10px">
+        <div class="metric ${isUp?'red':'green'}">
+          <div class="m-lbl">Daily interest change</div>
+          <div class="m-val">${isUp?'+':''}${fmt(dailyDiff)}</div>
+          <div class="m-sub">${fmt(simDailyInt)}/day at ${simRate.toFixed(2)}%</div>
+        </div>
+        <div class="metric ${isUp?'red':'green'}">
+          <div class="m-lbl">Monthly interest change</div>
+          <div class="m-val">${isUp?'+':''}${fmt(dailyDiff*30.44)}</div>
+          <div class="m-sub">est. per month</div>
+        </div>
+        <div class="metric ${isUp?'red':'green'}">
+          <div class="m-lbl">Total interest change</div>
+          <div class="m-val">${isUp?'+':''}${fmt(intDiff)}</div>
+          <div class="m-sub">over full loan term</div>
+        </div>
+        <div class="metric ${isUp?'red':'green'}">
+          <div class="m-lbl">Payoff time change</div>
+          <div class="m-val">${isUp?'+':''}${fmtY(Math.abs(timeDiff),freq)}</div>
+          <div class="m-sub">${sim.done?fmtY(sim.n,freq)+' total':isUp?'may not pay off':'sooner'}</div>
+        </div>
+      </div>
+      <div class="info-row"><span class="lbl">New minimum repayment</span><span style="font-weight:500;color:${isUp?'var(--red)':'var(--green-mid)'}">${fmt(simMinPmt)}</span></div>
+      <div class="info-row"><span class="lbl">Your current repayment</span><span>${fmt(pmt)}</span></div>
+      ${simMinPmt > pmt ? '<div style="margin-top:8px;padding:8px 10px;background:var(--red-light);border-radius:var(--radius);font-size:12px;color:var(--red)">⚠ At this rate your current repayment of '+fmt(pmt)+' would be below the new minimum of '+fmt(simMinPmt)+'. You would need to increase repayments.</div>' : ''}
+    </div>`;
+}
+
+/* ── Overpayment simulator ── */
+function renderOverpayment(){
+  const extra  = parseFloat(document.getElementById('op-extra')?.value)||0;
+  const rate   = getEffectiveRate()/100;
+  const balance= getAdjustedBalance();
+  const freq   = parseInt(settings.freq);
+  const pmt    = parseFloat(settings.repayment)||0;
+  const offset = getTotalOffset();
+  const newPmt = pmt + extra;
+
+  document.getElementById('op-total').value = fmt(newPmt);
+
+  const cur    = runSchedule(balance, rate, pmt,    freq, offset);
+  const over   = runSchedule(balance, rate, newPmt, freq, offset);
+  const intSaved  = Math.max(0, cur.cumInt - over.cumInt);
+  const timeSaved = Math.max(0, cur.n - over.n);
+
+  if(extra < 0.01){
+    document.getElementById('overpayment-results').innerHTML=
+      '<div style="font-size:13px;color:var(--muted);background:var(--surface2);border-radius:var(--radius);padding:12px">Enter an extra amount above to see the impact.</div>';
+    return;
+  }
+
+  document.getElementById('overpayment-results').innerHTML=`
+    <div style="background:var(--surface2);border-radius:var(--radius-lg);padding:14px">
+      <div style="font-size:13px;font-weight:500;color:var(--green-mid);margin-bottom:10px">
+        Paying ${fmt(extra)} extra per ${freqName(freq)} (${fmt(newPmt)} total)
+      </div>
+      <div class="g2" style="gap:8px;margin-bottom:10px">
+        <div class="metric green">
+          <div class="m-lbl">Interest saved</div>
+          <div class="m-val">${fmt(intSaved)}</div>
+          <div class="m-sub">over loan term</div>
+        </div>
+        <div class="metric green">
+          <div class="m-lbl">Time saved</div>
+          <div class="m-val">${fmtY(timeSaved,freq)}</div>
+          <div class="m-sub">${over.done?'Payoff in '+fmtY(over.n,freq):'check repayment'}</div>
+        </div>
+      </div>
+      <div class="info-row"><span class="lbl">Current payoff</span><span>${cur.done?fmtY(cur.n,freq):'—'}</span></div>
+      <div class="info-row"><span class="lbl">New payoff</span><span style="color:var(--green-mid);font-weight:500">${over.done?fmtY(over.n,freq):'—'}</span></div>
+      <div class="info-row"><span class="lbl">Extra cost per year</span><span>${fmt(extra*freq)}</span></div>
+      <div class="info-row"><span class="lbl">Return on extra payments</span><span style="color:var(--green-mid);font-weight:500">${fmt(intSaved/(extra*freq*(over.n/freq)))}/yr saved per $1 extra</span></div>
+    </div>`;
+}
+
+function renderOverpaymentFromTotal(){
+  const total = parseFloat(document.getElementById('op-total-input')?.value)||0;
+  const pmt   = parseFloat(settings.repayment)||0;
+  if(total > 0){
+    const extra = Math.max(0, total - pmt);
+    const el = document.getElementById('op-extra');
+    if(el){ el.value = extra.toFixed(2); renderOverpayment(); }
+  }
+}
+
+/* ── Offset target calculator ── */
+function renderOffsetTarget(){
+  const yearsEarly = parseInt(document.getElementById('ot-years')?.value)||2;
+  renderOffsetTargetCalc(yearsEarly, null);
+}
+function renderOffsetTargetFromYear(){
+  const targetYear = parseInt(document.getElementById('ot-year-input')?.value);
+  if(!targetYear) return;
+  renderOffsetTargetCalc(null, targetYear);
+}
+function renderOffsetTargetCalc(yearsEarly, targetYear){
+  const rate    = getEffectiveRate()/100;
+  const balance = getAdjustedBalance();
+  const freq    = parseInt(settings.freq);
+  const pmt     = parseFloat(settings.repayment)||0;
+  const curOffset = getTotalOffset();
+
+  // Current payoff in periods
+  const curSched = runSchedule(balance, rate, pmt, freq, 0);
+  const curPeriods = curSched.n;
+  let targetPeriods;
+  if(targetYear !== null){
+    const curYear = new Date().getFullYear();
+    targetPeriods = Math.max(1, (targetYear - curYear) * freq);
+  } else {
+    targetPeriods = Math.max(1, curPeriods - (yearsEarly * freq));
+  }
+
+  const yearsEarlyActual = (curPeriods - targetPeriods) / freq;
+
+  // Binary search for required offset
+  let lo = 0, hi = balance, requiredOffset = null;
+  for(let i=0; i<50; i++){
+    const mid = (lo+hi)/2;
+    const sched = runSchedule(balance, rate, pmt, freq, mid);
+    if(sched.n <= targetPeriods){ hi = mid; requiredOffset = mid; }
+    else lo = mid;
+  }
+
+  const alreadyAchieved = runSchedule(balance,rate,pmt,freq,curOffset).n <= targetPeriods;
+  const additionalNeeded = requiredOffset !== null ? Math.max(0, requiredOffset - curOffset) : null;
+
+  const withTarget = requiredOffset!==null ? runSchedule(balance,rate,pmt,freq,requiredOffset) : null;
+  const withCur    = runSchedule(balance,rate,pmt,freq,curOffset);
+  const intSaved   = withTarget ? Math.max(0, withCur.cumInt - withTarget.cumInt) : 0;
+
+  document.getElementById('offset-target-results').innerHTML = alreadyAchieved
+    ? `<div style="background:rgba(29,158,117,0.1);border-radius:var(--radius);padding:12px;font-size:13px;color:var(--green-mid)">
+        ✓ You've already achieved this target with your current offset of ${fmt(curOffset)}!
+      </div>`
+    : requiredOffset === null
+    ? `<div style="background:var(--red-light);border-radius:var(--radius);padding:12px;font-size:13px;color:var(--red)">
+        This target isn't achievable through offset alone at current repayments.
+      </div>`
+    : `<div style="background:var(--surface2);border-radius:var(--radius-lg);padding:14px">
+      <div style="font-size:13px;font-weight:500;color:var(--text);margin-bottom:10px">
+        To pay off ${yearsEarlyActual.toFixed(1)} year${yearsEarlyActual.toFixed(1)!=='1.0'?'s':''} early${targetYear?' (by '+targetYear+')':''}:
+      </div>
+      <div class="g2" style="gap:8px;margin-bottom:10px">
+        <div class="metric blue">
+          <div class="m-lbl">Total offset needed</div>
+          <div class="m-val">${fmt(requiredOffset)}</div>
+          <div class="m-sub">in offset accounts</div>
+        </div>
+        <div class="metric ${additionalNeeded < 5000 ? 'green' : 'amber'}">
+          <div class="m-lbl">Additional needed</div>
+          <div class="m-val">${fmt(additionalNeeded)}</div>
+          <div class="m-sub">above current ${fmt(curOffset)}</div>
+        </div>
+      </div>
+      <div class="info-row"><span class="lbl">Interest saved at target</span><span style="color:var(--green-mid);font-weight:500">${fmt(intSaved)}</span></div>
+      <div class="info-row"><span class="lbl">Current offset</span><span>${fmt(curOffset)}</span></div>
+      <div class="info-row"><span class="lbl">Gap to fill</span><span style="font-weight:500">${fmt(additionalNeeded)}</span></div>
+      <div class="info-row"><span class="lbl">Payoff without extra offset</span><span>${curSched.done?fmtY(curSched.n,freq):'—'}</span></div>
+    </div>`;
+}
+
+/* ── CSV Export ── */
+function exportCSV(type){
+  let csv = '', filename = '';
+
+  if(type==='schedule'){
+    const rate    = getEffectiveRate()/100;
+    const balance = getAdjustedBalance();
+    const freq    = parseInt(settings.freq);
+    const pmt     = parseFloat(settings.repayment)||0;
+    const offset  = getTotalOffset();
+    const r = rate/freq;
+
+    // Build full schedule with dates
+    const lastPay  = settings.lastPayDate ? new Date(settings.lastPayDate+'T00:00:00') : null;
+    const startDate = new Date((settings.startDate||'2022-01-01')+'T00:00:00');
+    let d = lastPay ? (() => { let x=new Date(lastPay); while(x>startDate) x=advanceDate(reversePayDate(x,freq),freq); return advanceDate(x,freq); })() : advanceDate(startDate,freq);
+
+    function reversePayDate(d,freq){
+      const f=parseInt(freq);
+      if(f===12) return new Date(d.getFullYear(),d.getMonth()-1,d.getDate());
+      if(f===4)  return new Date(d.getFullYear(),d.getMonth()-3,d.getDate());
+      const n=new Date(d); n.setDate(n.getDate()-(f===52?7:14)); return n;
+    }
+
+    const rows=[['Payment #','Date','Interest','Principal','Payment','Balance']];
+    let bal=balance, n=0;
+    const MAX=freq*55;
+    while(bal>0.01&&n<MAX){
+      const effBal=Math.max(0,bal-offset);
+      const interest=effBal*r;
+      const principal=Math.min(pmt-interest,bal);
+      if(principal<=0.005) break;
+      bal=Math.max(0,bal-principal);
+      n++;
+      rows.push([n, d.toLocaleDateString('en-AU'), interest.toFixed(2), principal.toFixed(2), pmt.toFixed(2), bal.toFixed(2)]);
+      d=advanceDate(d,freq);
+    }
+    csv = rows.map(r=>r.join(',')).join('\n');
+    filename = `payment-schedule-${today()}.csv`;
+
+  } else if(type==='log'){
+    const rows=[['ID','Date','Type','Account','Balance','Amount','Rate','Note']];
+    [...logEntries].sort((a,b)=>a.date.localeCompare(b.date)).forEach(e=>{
+      rows.push([e.id,e.date,e.type,e.account||'',e.balance||'',e.amount||'',e.rate||'','"'+(e.note||'').replace(/"/g,'""')+'"']);
+    });
+    csv = rows.map(r=>r.join(',')).join('\n');
+    filename = `log-entries-${today()}.csv`;
+
+  } else if(type==='monthly'){
+    const hData = buildHistData();
+    if(!hData){ toast('No data to export'); return; }
+    const rows=[['Year','Month','Interest','Principal','Balance']];
+    Object.values(hData.monthMap).sort((a,b)=>a.key.localeCompare(b.key)).forEach(m=>{
+      rows.push([m.yearKey, m.label, m.interest.toFixed(2), m.principal.toFixed(2), m.balance.toFixed(2)]);
+    });
+    csv = rows.map(r=>r.join(',')).join('\n');
+    filename = `monthly-summary-${today()}.csv`;
+  }
+
+  if(!csv){ toast('No data to export'); return; }
+  const blob = new Blob([csv], {type:'text/csv'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  toast('CSV exported ✓');
 }
 
 /* ─── Data export / import ─── */

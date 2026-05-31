@@ -1789,6 +1789,7 @@ function addReconcileEntry(){
 
   renderReconcileAnalysis(yearNum, monthNum, actual, monthVal);
   renderReconcileHistory();
+  recalc(); // update dashboard with corrected balance
   toast('Entry saved ✓');
 }
 

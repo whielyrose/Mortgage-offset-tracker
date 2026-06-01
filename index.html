@@ -242,7 +242,18 @@ html,body{min-height:100%;background:var(--bg);color:var(--text);font-family:-ap
     <div class="chart-wrap" style="height:220px"><canvas id="balChart" role="img" aria-label="Loan balance over time">Balance chart.</canvas></div>
   </div>
   <div class="card">
-    <div class="card-title"><span>💸</span> Daily interest this month</div>
+    <div class="card-title">
+      <span>💸</span>
+      <span id="daily-chart-title">Daily interest this month</span>
+      <div style="margin-left:auto;display:flex;align-items:center;gap:6px">
+        <button onclick="shiftDailyMonth(-1)" style="font-size:13px;background:none;border:none;cursor:pointer;color:var(--muted);padding:0 4px" title="Previous month">‹</button>
+        <input type="month" id="daily-month-picker"
+          style="font-size:11px;border:0.5px solid var(--border2);border-radius:6px;padding:2px 6px;background:var(--surface2);color:var(--text);cursor:pointer"
+          onchange="renderDailyChartForMonth(this.value)">
+        <button onclick="shiftDailyMonth(1)" style="font-size:13px;background:none;border:none;cursor:pointer;color:var(--muted);padding:0 4px" title="Next month">›</button>
+        <button onclick="resetDailyMonth()" style="font-size:10px;padding:1px 7px;border-radius:10px;border:0.5px solid var(--border2);background:var(--surface2);color:var(--muted);cursor:pointer">Today</button>
+      </div>
+    </div>
     <div class="chart-wrap" style="height:160px"><canvas id="dailyChart" role="img" aria-label="Daily interest accrual">Daily interest.</canvas></div>
     <div id="month-summary" style="margin-top:10px;font-size:12px;color:var(--muted)"></div>
   </div>
@@ -1129,49 +1140,135 @@ function buildActualBalanceSeries(curYear, maxYrs){
   });
 }
 
-function renderDailyChart(effBal,rate){
-  const now=new Date();
-  const daysInMonth=new Date(now.getFullYear(),now.getMonth()+1,0).getDate();
-  const dailyRate=rate/365;
-  const labels=[],data=[],colors=[];
-  const yearStr=now.getFullYear();
-  const monthStr=String(now.getMonth()+1).padStart(2,'0');
-  const todayDay=now.getDate();
-  const curBalance=getAdjustedBalance();
-  for(let d=1;d<=daysInMonth;d++){
-    labels.push(d);
-    const dateStr=`${yearStr}-${monthStr}-${String(d).padStart(2,'0')}`;
-    // Use historical offset for past days, current offset for today/future
-    let dayEffBal;
-    if(d<todayDay){
-      const histOffset=getOffsetForDate(dateStr);
-      const histBalance=getBalanceForDate(dateStr);
-      dayEffBal=Math.max(0,histBalance-histOffset);
-    } else {
-      dayEffBal=effBal;
-    }
-    data.push(parseFloat((dayEffBal*dailyRate).toFixed(4)));
-    colors.push(d<todayDay?'#9FE1CB':d===todayDay?'#1D9E75':'#C0DD97');
+function renderDailyChart(effBal, rate){
+  // Default to current month
+  const now = new Date();
+  const currentMonthStr = now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0');
+  const picker = document.getElementById('daily-month-picker');
+  if(picker && !picker.value) picker.value = currentMonthStr;
+  renderDailyChartForMonth(picker?.value || currentMonthStr, effBal, rate);
+}
+
+function renderDailyChartForMonth(monthStr, effBalOverride, rateOverride){
+  if(!monthStr) return;
+  const [yearNum, monthNum1] = monthStr.split('-').map(Number);
+  const monthIdx = monthNum1 - 1; // 0-indexed
+  const now = new Date();
+  const currentMonthStr = now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0');
+  const isCurrentMonth = monthStr === currentMonthStr;
+  const isPastMonth    = monthStr < currentMonthStr;
+
+  // Update picker and title
+  const picker = document.getElementById('daily-month-picker');
+  if(picker) picker.value = monthStr;
+  const titleEl = document.getElementById('daily-chart-title');
+  if(titleEl){
+    const label = new Date(yearNum, monthIdx, 1).toLocaleDateString('en-AU',{month:'long',year:'numeric'});
+    titleEl.textContent = isCurrentMonth ? 'Daily interest this month' : `Daily interest — ${label}`;
   }
+
+  // Get rate and balance for this month (use effective rate at end of month)
+  const lastDayOfMonth = new Date(yearNum, monthNum1, 0);
+  const lastDayStr = monthStr+'-'+String(lastDayOfMonth.getDate()).padStart(2,'0');
+  const rate   = rateOverride !== undefined ? rateOverride : (getEffectiveRate()/100);
+  const dailyRate = rate/365;
+  const daysInMonth = lastDayOfMonth.getDate();
+  const todayDay = isCurrentMonth ? now.getDate() : daysInMonth;
+
+  const labels=[], data=[], colors=[];
+
+  for(let d=1; d<=daysInMonth; d++){
+    labels.push(d);
+    const dateStr = `${yearNum}-${String(monthNum1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const isPast = isPastMonth || (isCurrentMonth && d < now.getDate());
+    const isToday = isCurrentMonth && d === now.getDate();
+
+    let dayEffBal;
+    if(isPast || isToday){
+      const histOffset  = getOffsetForDate(dateStr);
+      const histBalance = getBalanceForDate(dateStr);
+      dayEffBal = Math.max(0, histBalance - histOffset);
+    } else {
+      // Future days in current month — use current effBal
+      dayEffBal = effBalOverride !== undefined ? effBalOverride : Math.max(0, getAdjustedBalance() - getTotalOffset());
+    }
+
+    // Use effective rate for that specific day
+    const dayRate = getRateForDate(dateStr) / 100 / 365;
+    data.push(parseFloat((dayEffBal * dayRate).toFixed(4)));
+
+    if(isPastMonth)      colors.push('#9FE1CB');
+    else if(isPast)      colors.push('#9FE1CB');
+    else if(isToday)     colors.push('#1D9E75');
+    else                 colors.push('#C0DD97');
+  }
+
+  // Y axis zoom
+  const validData = data.filter(v=>v>0);
+  const dataMin = validData.length ? Math.min(...validData) : 0;
+  const dataMax = validData.length ? Math.max(...validData) : 1;
+  const dataRange = dataMax - dataMin;
+  const pad = Math.max(dataRange * 0.3, 0.10);
+  const yMinZoomed = Math.max(0, parseFloat((dataMin - pad).toFixed(2)));
+  const yMaxZoomed = parseFloat((dataMax + pad).toFixed(2));
+  const isZoomed = window._dailyChartZoomed !== false;
+
   if(dailyChartInst) dailyChartInst.destroy();
-  const dailyCanvas=document.getElementById('dailyChart');
+  const dailyCanvas = document.getElementById('dailyChart');
   if(!dailyCanvas) return;
-  dailyChartInst=new Chart(dailyCanvas,{
+  dailyChartInst = new Chart(dailyCanvas,{
     type:'bar',
     data:{labels,datasets:[{label:'Daily interest',data,backgroundColor:colors,borderRadius:2}]},
     options:{
-      responsive:true,maintainAspectRatio:false,
+      responsive:true, maintainAspectRatio:false,
       plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>fmt(c.raw)}}},
       scales:{
         x:{grid:{display:false},ticks:{font:{size:10},autoSkip:true,maxTicksLimit:15}},
-        y:{grid:{color:'rgba(128,128,128,0.07)'},ticks:{font:{size:10},callback:v=>'$'+parseFloat(v).toFixed(2)}}
+        y:{
+          min: isZoomed ? yMinZoomed : 0,
+          max: isZoomed ? yMaxZoomed : undefined,
+          grid:{color:'rgba(128,128,128,0.07)'},
+          ticks:{font:{size:10},callback:v=>'$'+parseFloat(v).toFixed(2)}
+        }
       }
     }
   });
-  const total=data.reduce((a,b)=>a+b,0);
-  const sofar=data.slice(0,now.getDate()).reduce((a,b)=>a+b,0);
-  const el=document.getElementById('month-summary');
-  if(el) el.innerHTML=`Month total est: <strong style="color:var(--text)">${fmt(total)}</strong> &nbsp;·&nbsp; Accrued day 1–${now.getDate()}: <strong style="color:var(--text)">${fmt(sofar)}</strong> &nbsp;·&nbsp; Remaining: <strong style="color:var(--text)">${fmt(total-sofar)}</strong>`;
+
+  const total = data.reduce((a,b)=>a+b,0);
+  const sofar = isCurrentMonth ? data.slice(0,now.getDate()).reduce((a,b)=>a+b,0) : total;
+  const rangeCents = Math.round((dataMax-dataMin)*100);
+  const el = document.getElementById('month-summary');
+  if(el) el.innerHTML =
+    (isPastMonth
+      ? `Total interest: <strong style="color:var(--text)">${fmt(total)}</strong>`
+      : `Month total est: <strong style="color:var(--text)">${fmt(total)}</strong>`
+        +` &nbsp;·&nbsp; Accrued day 1–${now.getDate()}: <strong style="color:var(--text)">${fmt(sofar)}</strong>`
+        +` &nbsp;·&nbsp; Remaining: <strong style="color:var(--text)">${fmt(total-sofar)}</strong>`)
+    +(rangeCents>0 ? ` &nbsp;·&nbsp; Day range: <strong style="color:var(--text)">${rangeCents}¢</strong>` : '')
+    +` &nbsp;<button onclick="toggleDailyZoom()" style="font-size:10px;padding:1px 7px;border-radius:10px;border:1px solid var(--border2);background:var(--surface2);color:var(--muted);cursor:pointer;margin-left:4px">${isZoomed?'Full scale':'Zoom in'}</button>`;
+}
+
+function shiftDailyMonth(delta){
+  const picker = document.getElementById('daily-month-picker');
+  if(!picker) return;
+  const [y,m] = (picker.value || (new Date().getFullYear()+'-'+String(new Date().getMonth()+1).padStart(2,'0'))).split('-').map(Number);
+  const newDate = new Date(y, m-1+delta, 1);
+  const newStr = newDate.getFullYear()+'-'+String(newDate.getMonth()+1).padStart(2,'0');
+  renderDailyChartForMonth(newStr);
+}
+
+function resetDailyMonth(){
+  const now = new Date();
+  const currentMonthStr = now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0');
+  renderDailyChartForMonth(currentMonthStr);
+}
+
+function toggleDailyZoom(){
+  window._dailyChartZoomed = window._dailyChartZoomed === false ? true : false;
+  const picker = document.getElementById('daily-month-picker');
+  const now = new Date();
+  const monthStr = picker?.value || now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0');
+  renderDailyChartForMonth(monthStr);
 }
 
 /* ─── Schedule page ─── */
@@ -2508,7 +2605,18 @@ async function init(){
       <div class="chart-wrap" style="height:220px"><canvas id="balChart" role="img" aria-label="Loan balance over time">Balance chart.</canvas></div>
     </div>
     <div class="card">
-      <div class="card-title"><span>💸</span> Daily interest this month</div>
+      <div class="card-title">
+        <span>💸</span>
+        <span id="daily-chart-title">Daily interest this month</span>
+        <div style="margin-left:auto;display:flex;align-items:center;gap:6px">
+          <button onclick="shiftDailyMonth(-1)" style="font-size:13px;background:none;border:none;cursor:pointer;color:var(--muted);padding:0 4px" title="Previous month">‹</button>
+          <input type="month" id="daily-month-picker"
+            style="font-size:11px;border:0.5px solid var(--border2);border-radius:6px;padding:2px 6px;background:var(--surface2);color:var(--text);cursor:pointer"
+            onchange="renderDailyChartForMonth(this.value)">
+          <button onclick="shiftDailyMonth(1)" style="font-size:13px;background:none;border:none;cursor:pointer;color:var(--muted);padding:0 4px" title="Next month">›</button>
+          <button onclick="resetDailyMonth()" style="font-size:10px;padding:1px 7px;border-radius:10px;border:0.5px solid var(--border2);background:var(--surface2);color:var(--muted);cursor:pointer">Today</button>
+        </div>
+      </div>
       <div class="chart-wrap" style="height:160px"><canvas id="dailyChart" role="img" aria-label="Daily interest accrual">Daily interest.</canvas></div>
       <div id="month-summary" style="margin-top:10px;font-size:12px;color:var(--muted)"></div>
     </div>`;

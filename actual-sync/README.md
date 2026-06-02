@@ -109,3 +109,4 @@ Common alternatives:
 - `"0 0 0 * * *"` — midnight exactly
 - `"0 55 23 * * *"` — 11:55pm
 - `"0 0 8 * * *"` — 8am instead
+# rebuild Tue 02 Jun 2026 15:26:55 AEST

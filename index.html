@@ -7,6 +7,9 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Mortgage Tracker">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="format-detection" content="telephone=no">
+<meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.svg">
 <title>Offset Mortgage Tracker</title>
@@ -191,6 +194,161 @@ html,body{min-height:100%;background:var(--bg);color:var(--text);font-family:-ap
 .rc-pill-over{background:var(--red-light);color:var(--red)}
 .rc-pill-under{background:var(--amber-light);color:var(--amber)}
 
+
+/* ═══════════════════════════════════════════════════════════
+   MOBILE / PWA RESPONSIVE STYLES
+   ═══════════════════════════════════════════════════════════ */
+
+/* Bottom nav for mobile */
+.bottom-nav{
+  display:none;
+  position:fixed;
+  bottom:0;left:0;right:0;
+  background:var(--surface);
+  border-top:1px solid var(--border);
+  z-index:100;
+  padding:0 0 env(safe-area-inset-bottom);
+}
+.bottom-nav-inner{
+  display:flex;
+  overflow-x:auto;
+  scrollbar-width:none;
+}
+.bottom-nav-inner::-webkit-scrollbar{display:none}
+.bnav-btn{
+  flex:1;
+  min-width:52px;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  padding:6px 4px 4px;
+  gap:2px;
+  font-size:9px;
+  font-weight:500;
+  color:var(--muted);
+  background:none;
+  border:none;
+  cursor:pointer;
+  border-top:2px solid transparent;
+  transition:color .15s;
+  white-space:nowrap;
+}
+.bnav-btn.active{ color:var(--green); border-top-color:var(--green); }
+.bnav-icon{ font-size:18px; line-height:1; }
+
+@media(max-width:768px){
+
+  /* Show bottom nav, hide top nav */
+  .bottom-nav{ display:block; }
+  .nav{ display:none !important; }
+
+  /* App padding for bottom nav */
+  .app{ padding-bottom:calc(70px + env(safe-area-inset-bottom)); }
+
+  /* Topbar: compact on mobile */
+  .topbar{ padding:10px 14px; gap:8px; }
+  .topbar-sub{ display:none; }
+  .topbar-icon{ width:28px;height:28px;font-size:14px; }
+  .topbar-title{ font-size:14px; }
+  .install-btn{ display:none; }
+
+  /* Sync indicator — compact */
+  #sync-indicator{ font-size:10px; }
+
+  /* Page padding */
+  .page{ padding:12px; }
+
+  /* Cards */
+  .card{ padding:14px; margin-bottom:10px; }
+  .card-title{ font-size:11px; flex-wrap:wrap; gap:4px; }
+
+  /* Metrics grid: 2 cols on mobile */
+  #dash-metrics{
+    grid-template-columns:repeat(2,1fr) !important;
+    gap:8px !important;
+  }
+  .metric{ padding:8px 10px; }
+  .m-val{ font-size:15px; }
+  .m-lbl{ font-size:9px; }
+  .m-sub{ font-size:9px; }
+
+  /* Grids: collapse to 1 col */
+  .g2,.g3,.g4{ grid-template-columns:1fr !important; }
+  /* Exception: keep 2-col for small metrics */
+  .g2.keep2{ grid-template-columns:1fr 1fr !important; }
+
+  /* Charts: shorter on mobile */
+  .chart-wrap[style*="height:220px"]{ height:160px !important; }
+  .chart-wrap[style*="height:160px"]{ height:130px !important; }
+
+  /* Fields: larger touch targets */
+  input[type="text"],
+  input[type="number"],
+  input[type="date"],
+  input[type="month"],
+  select{
+    font-size:16px !important; /* prevents iOS zoom */
+    padding:9px 10px !important;
+    min-height:42px;
+  }
+  textarea{ font-size:16px !important; }
+  label{ font-size:12px !important; }
+
+  /* Buttons: larger tap targets */
+  .btn{ padding:9px 14px; font-size:13px; min-height:38px; }
+  .btn.small{ padding:6px 10px; font-size:12px; min-height:34px; }
+
+  /* Log type tabs: horizontal scroll */
+  .log-type-tabs{
+    display:flex;
+    overflow-x:auto;
+    scrollbar-width:none;
+    gap:6px;
+    padding-bottom:4px;
+    flex-wrap:nowrap !important;
+  }
+  .log-type-tabs::-webkit-scrollbar{display:none}
+  .log-type-btn{ white-space:nowrap; flex-shrink:0; }
+
+  /* Table: horizontal scroll */
+  .tbl-wrap{ overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  .tbl{ min-width:500px; }
+
+  /* Daily chart title: wrap on mobile */
+  #daily-chart-title{ font-size:10px; }
+
+  /* Yesterday/today snapshot: stack labels */
+  #yesterday-metrics,
+  #dash-metrics{
+    gap:6px !important;
+  }
+
+  /* Schedule table: scrollable */
+  #sched-table-wrap{ overflow-x:auto; }
+
+  /* History tree: tighter */
+  .hist-row{ font-size:11px; }
+
+  /* Reconcile summary: 2 col */
+  .rc-summary{ grid-template-columns:1fr 1fr !important; }
+
+  /* Tools page: rate buttons wrap */
+  #rate-forecast-results .g2{ grid-template-columns:1fr 1fr !important; }
+
+  /* Banner */
+  .banner{ font-size:11px; padding:8px 10px; }
+
+  /* Info rows */
+  .info-row{ font-size:12px; }
+}
+
+@media(max-width:400px){
+  #dash-metrics{ grid-template-columns:1fr 1fr !important; }
+  .metric{ padding:7px 8px; }
+  .m-val{ font-size:14px; }
+  .card{ padding:12px; }
+}
 </style>
 </head>
 <body>
@@ -219,6 +377,33 @@ html,body{min-height:100%;background:var(--bg);color:var(--text);font-family:-ap
   <button class="nav-tab" onclick="showPage('reconcile')">Reconcile</button>
   <button class="nav-tab" onclick="showPage('tools')">Tools</button>
 </div>
+
+<!-- BOTTOM NAV (mobile only) -->
+<nav class="bottom-nav" aria-label="Main navigation">
+  <div class="bottom-nav-inner">
+    <button class="bnav-btn active" id="bnav-dashboard" onclick="showPage('dashboard')">
+      <span class="bnav-icon">📊</span>Dashboard
+    </button>
+    <button class="bnav-btn" id="bnav-settings" onclick="showPage('settings')">
+      <span class="bnav-icon">🏠</span>Setup
+    </button>
+    <button class="bnav-btn" id="bnav-log" onclick="showPage('log')">
+      <span class="bnav-icon">📝</span>Log
+    </button>
+    <button class="bnav-btn" id="bnav-schedule" onclick="showPage('schedule')">
+      <span class="bnav-icon">📅</span>Schedule
+    </button>
+    <button class="bnav-btn" id="bnav-history" onclick="showPage('history')">
+      <span class="bnav-icon">📉</span>History
+    </button>
+    <button class="bnav-btn" id="bnav-reconcile" onclick="showPage('reconcile')">
+      <span class="bnav-icon">🧾</span>Reconcile
+    </button>
+    <button class="bnav-btn" id="bnav-tools" onclick="showPage('tools')">
+      <span class="bnav-icon">🔧</span>Tools
+    </button>
+  </div>
+</nav>
 
 <!-- DASHBOARD -->
 <div class="page active" id="page-dashboard">
@@ -613,6 +798,10 @@ function saveSetting(k,v){
 function showPage(id){
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
+  // Update bottom nav active state
+  document.querySelectorAll('.bnav-btn').forEach(b=>b.classList.remove('active'));
+  const bnavBtn=document.getElementById('bnav-'+id);
+  if(bnavBtn) bnavBtn.classList.add('active');
   document.getElementById('page-'+id).classList.add('active');
   const tabs=[...document.querySelectorAll('.nav-tab')];
   const names=['dashboard','settings','log','schedule','history','reconcile','tools'];
@@ -885,7 +1074,7 @@ function renderLogList(){
   if(!logEntries.length){el.innerHTML='<div class="empty"><div class="empty-icon">📋</div>No entries yet. Add your first entry above.</div>';return;}
   const icons={offset:'📊',repayment:'💳',rate:'📈',extra:'💰','interest-charge':'🏦'};
   const sorted=[...logEntries].sort((a,b)=>b.date.localeCompare(a.date));
-  el.innerHTML=`<table class="tbl"><thead><tr><th>Date</th><th>Type</th><th>Detail</th><th>Note</th><th style="width:36px"></th></tr></thead><tbody>${
+  el.innerHTML=`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Date</th><th>Type</th><th>Detail</th><th>Note</th><th style="width:36px"></th></tr></thead><tbody>${
     sorted.map(e=>{
       let detail='';
       if(e.type==='offset') detail=`${e.account}: ${fmt(e.balance)}`;
@@ -901,7 +1090,7 @@ function renderLogList(){
         <td><button class="btn icon-only small" onclick="deleteLogEntry(${e.id})" aria-label="Delete">✕</button></td>
       </tr>`;
     }).join('')
-  }</tbody></table>`;
+  }</tbody></table></table></div>`;
 }
 
 
@@ -1310,7 +1499,7 @@ function renderSchedule(){
   }
 
   document.getElementById('schedule-table').innerHTML=`
-    <table class="tbl">
+    <div class="tbl-wrap"><table class="tbl">
       <thead><tr><th>Date</th><th>Interest</th><th>Principal</th><th>Balance after</th><th>Status</th></tr></thead>
       <tbody>${periods.map(p=>`<tr>
         <td><span class="date-badge">${p.date.toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'})}</span></td>
@@ -1319,7 +1508,7 @@ function renderSchedule(){
         <td>${fmtS(p.balance)}</td>
         <td>${p.logged?`<span style="color:var(--green-mid);font-size:12px">✓ Logged ${fmt(p.loggedAmt)}</span>`:`<span style="color:var(--muted);font-size:12px">Scheduled</span>`}</td>
       </tr>`).join('')}</tbody>
-    </table>`;
+    </table></table></div>`;
 
   renderAmort(balance,rate,pmt,freq,totalOffset);
   renderSaving(balance,rate,pmt,freq,totalOffset);
@@ -1427,7 +1616,7 @@ function renderAmort(balance,rate,pmt,freq,totalOffset){
           <td style="color:var(--muted)">${r.term?fmtS(r.term.balance):'<span style="color:var(--green-mid)">✓ $0</span>'}</td>
         </tr>`;
       }).join('')}</tbody>
-    </table></div>`;
+    </table>`;
 }
 
 function renderSaving(balance,rate,pmt,freq,totalOffset){
@@ -2016,10 +2205,10 @@ function renderReconcileHistory(){
   }).join('');
 
   document.getElementById('rc-history-table').innerHTML=`
-    <table class="tbl">
+    <div class="tbl-wrap"><table class="tbl">
       <thead><tr><th>Month</th><th>Actual</th><th>Estimated</th><th>Difference</th><th>Note</th><th style="width:36px"></th></tr></thead>
       <tbody>${rows}</tbody>
-    </table>`;
+    </table></table></div>`;
 }
 
 function deleteReconcileEntry(id){
@@ -2079,7 +2268,7 @@ function renderPropValueLog(){
   // Sort ascending for "since last" calc (oldest first), display descending
   const sortedAsc = [...propValueLog].sort((a,b)=>a.date.localeCompare(b.date));
   el.innerHTML = '<p style="font-size:12px;font-weight:500;color:var(--text);margin-bottom:8px">Estimate history</p>'
-    + '<div style="overflow-x:auto"><table class="tbl" style="min-width:540px"><thead><tr><th>Date</th><th>Estimated value</th><th>Growth from purchase</th><th>Change since last entry</th><th>Note</th><th style="width:36px"></th></tr></thead><tbody>'
+    + '<table class="tbl" style="min-width:540px"><thead><tr><th>Date</th><th>Estimated value</th><th>Growth from purchase</th><th>Change since last entry</th><th>Note</th><th style="width:36px"></th></tr></thead><tbody>'
     + propValueLog.map(e=>{
         const growth = purchasePrice>0 ? e.value - purchasePrice : null;
         const growthPct = purchasePrice>0 ? ((e.value-purchasePrice)/purchasePrice*100) : null;
@@ -2109,7 +2298,7 @@ function renderPropValueLog(){
           + '<td><button class="btn icon-only small" onclick="deletePropValueEntry('+e.id+')" aria-label="Delete">✕</button></td>'
           + '</tr>';
       }).join('')
-    + '</tbody></table></div>';
+    + '</tbody></table>';
 }
 
 /* ─── Equity chart ─── */

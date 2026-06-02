@@ -1,11 +1,11 @@
 {
   "name": "Beyond Bank Mortgage Tracker",
   "short_name": "Mortgage Tracker",
-  "description": "Track your Beyond Bank offset mortgage — daily interest, repayments, and payoff projections.",
-  "start_url": "./index.html",
+  "description": "Track your Beyond Bank offset mortgage \u2014 daily interest, repayments, and payoff projections.",
+  "start_url": "/",
   "display": "standalone",
-  "background_color": "#f5f6f7",
-  "theme_color": "#0f6e56",
+  "background_color": "#0e0f11",
+  "theme_color": "#1D9E75",
   "orientation": "portrait-primary",
   "icons": [
     {
@@ -21,5 +21,9 @@
       "purpose": "any maskable"
     }
   ],
-  "categories": ["finance", "utilities"]
+  "categories": [
+    "finance",
+    "utilities"
+  ],
+  "scope": "/"
 }

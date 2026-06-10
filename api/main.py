@@ -25,7 +25,7 @@ _sse_clients: list[asyncio.Queue] = []
 
 def read_data() -> dict:
     if not os.path.exists(DATA_FILE):
-        return {"settings": None, "log": [], "reconcile": [], "propValueLog": []}
+        return {"settings": None, "log": [], "reconcile": [], "propValueLog": [], "fundingData": None}
     with open(DATA_FILE, "r") as f:
         return json.load(f)
 
@@ -53,6 +53,7 @@ class SavePayload(BaseModel):
     log: list = []
     reconcile: list = []
     propValueLog: list = []
+    fundingData: Any = None
 
 
 @app.get("/api/data")
@@ -67,7 +68,8 @@ async def save_data(payload: SavePayload):
             "settings": payload.settings,
             "log": payload.log,
             "reconcile": payload.reconcile,
-            "propValueLog": payload.propValueLog
+            "propValueLog": payload.propValueLog,
+            "fundingData": payload.fundingData
         })
         return {"ok": True}
     except Exception as e:

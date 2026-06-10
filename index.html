@@ -376,6 +376,7 @@ html,body{min-height:100%;background:var(--bg);color:var(--text);font-family:-ap
   <button class="nav-tab" onclick="showPage('history')">History</button>
   <button class="nav-tab" onclick="showPage('reconcile')">Reconcile</button>
   <button class="nav-tab" onclick="showPage('tools')">Tools</button>
+  <button class="nav-tab" onclick="showPage('funding')">Funding</button>
 </div>
 
 <!-- BOTTOM NAV (mobile only) -->
@@ -401,6 +402,9 @@ html,body{min-height:100%;background:var(--bg);color:var(--text);font-family:-ap
     </button>
     <button class="bnav-btn" id="bnav-tools" onclick="showPage('tools')">
       <span class="bnav-icon">🔧</span>Tools
+    </button>
+    <button class="bnav-btn" id="bnav-funding" onclick="showPage('funding')">
+      <span class="bnav-icon">💰</span>Funding
     </button>
   </div>
 </nav>
@@ -452,6 +456,103 @@ html,body{min-height:100%;background:var(--bg);color:var(--text);font-family:-ap
     <div class="chart-wrap" style="height:220px"><canvas id="equityChart" role="img" aria-label="Property value and equity over time">Equity chart.</canvas></div>
     <div id="equity-chart-summary" style="margin-top:10px;font-size:12px;color:var(--muted)"></div>
   </div>
+</div>
+
+<!-- BUDGET FUNDING -->
+<div class="page" id="page-funding">
+
+  <div class="card">
+    <div class="card-title"><span>💰</span> Budget funding tracker</div>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:14px">
+      Track how much is still needed to fully fund a future budget month.
+      Set a category group, the target month, and the total amount needed —
+      the tracker shows what's already funded and what's still outstanding.
+    </p>
+
+    <!-- Setup -->
+    <div class="g2" style="margin-bottom:14px">
+      <div class="field">
+        <label>Category group name</label>
+        <input type="text" id="fund-group" placeholder="e.g. Bills"
+          oninput="saveFundingSetting()">
+        <div class="hint">Must match the group name in Actual Budget exactly for auto-sync to work.</div>
+      </div>
+      <div class="field">
+        <label>Target month</label>
+        <input type="month" id="fund-target-month"
+          oninput="saveFundingSetting();renderFunding()">
+      </div>
+    </div>
+    <div class="g2" style="margin-bottom:14px">
+      <div class="field">
+        <label>Total needed for this month ($)</label>
+        <input type="number" id="fund-target-amount" min="0" step="10" placeholder="e.g. 3200"
+          oninput="saveFundingSetting();renderFunding()">
+        <div class="hint">The total bills/expenses for that month.</div>
+      </div>
+      <div class="field">
+        <label>Already funded ($) <span id="fund-sync-badge" style="display:none;font-size:10px;background:rgba(29,158,117,0.15);color:var(--green-mid);border-radius:10px;padding:1px 7px;margin-left:4px">auto-sync</span></label>
+        <input type="number" id="fund-funded-amount" min="0" step="10" placeholder="e.g. 1500"
+          oninput="window._fundManualOverride=true;saveFundingSetting();renderFunding()">
+        <div class="hint">What's already been allocated. Auto-filled from Actual Budget sync if configured.</div>
+      </div>
+    </div>
+    <button class="btn small" onclick="window._fundManualOverride=false;renderFunding()">↺ Use auto-sync value</button>
+  </div>
+
+  <!-- Progress display -->
+  <div class="card" id="fund-results" style="display:none">
+    <div class="card-title"><span>📊</span> Funding progress — <span id="fund-results-title"></span></div>
+
+    <!-- Progress bar -->
+    <div style="margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:6px">
+        <span id="fund-bar-label-left"></span>
+        <span id="fund-bar-label-right"></span>
+      </div>
+      <div style="background:var(--surface2);border-radius:99px;height:14px;overflow:hidden">
+        <div id="fund-progress-bar" style="height:100%;border-radius:99px;background:var(--green-mid);transition:width .4s ease;min-width:4px"></div>
+      </div>
+      <div style="text-align:center;margin-top:6px;font-size:12px;color:var(--muted)" id="fund-bar-pct"></div>
+    </div>
+
+    <!-- Key metrics -->
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px" id="fund-metrics"></div>
+
+    <!-- Days remaining -->
+    <div id="fund-days-info" style="font-size:13px;color:var(--muted);padding:10px;background:var(--surface2);border-radius:var(--radius);margin-bottom:10px"></div>
+
+    <!-- History log -->
+    <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:8px">Funding log</div>
+    <div id="fund-log-list"></div>
+    <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+      <button class="btn small" onclick="addFundingLogEntry()">+ Log manual update</button>
+    </div>
+  </div>
+
+  <!-- Funding log entry form (hidden by default) -->
+  <div class="card" id="fund-log-form" style="display:none">
+    <div class="card-title"><span>📝</span> Log a funding update</div>
+    <div class="g2" style="margin-bottom:10px">
+      <div class="field">
+        <label>Date</label>
+        <input type="date" id="fund-log-date">
+      </div>
+      <div class="field">
+        <label>Funded amount ($)</label>
+        <input type="number" id="fund-log-amount" min="0" step="10" placeholder="e.g. 500">
+      </div>
+    </div>
+    <div class="field" style="margin-bottom:10px">
+      <label>Note (optional)</label>
+      <input type="text" id="fund-log-note" placeholder="e.g. pay day top-up">
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn primary small" onclick="saveFundingLogEntry()">Save</button>
+      <button class="btn small" onclick="document.getElementById('fund-log-form').style.display='none'">Cancel</button>
+    </div>
+  </div>
+
 </div>
 
 <!-- TOOLS -->
@@ -764,7 +865,7 @@ const API = {
         await fetch('/api/data',{
           method:'POST',
           headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({settings,log:logEntries,reconcile:reconcileEntries,propValueLog})
+          body:JSON.stringify({settings,log:logEntries,reconcile:reconcileEntries,propValueLog,fundingData})
         });
       }catch(e){ console.warn('API save failed',e); }
     }, 600);
@@ -784,7 +885,8 @@ const defaultSettings = {
 /* ─── State ─── */
 let settings = {...defaultSettings};
 let logEntries = [];
-let propValueLog = []; // [{id, date, value, note}]
+let propValueLog = [];
+let fundingData = { group:'', targetMonth:'', targetAmount:0, fundedAmount:0, log:[] }; // [{id, date, value, note}]
 let currentLogType = 'offset';
 let balChartInst = null, dailyChartInst = null, histChartInst = null, equityChartInst = null;
 
@@ -804,7 +906,7 @@ function showPage(id){
   if(bnavBtn) bnavBtn.classList.add('active');
   document.getElementById('page-'+id).classList.add('active');
   const tabs=[...document.querySelectorAll('.nav-tab')];
-  const names=['dashboard','settings','log','schedule','history','reconcile','tools'];
+  const names=['dashboard','settings','log','schedule','history','reconcile','tools','funding'];
   const i=names.indexOf(id);
   if(i>=0) tabs[i].classList.add('active');
   if(id==='dashboard') recalc();
@@ -812,6 +914,7 @@ function showPage(id){
   if(id==='history') renderHistory();
   if(id==='reconcile') renderReconcilePage();
   if(id==='tools') renderTools();
+  if(id==='funding') renderFundingPage();
   if(id==='settings'){ const pvd=document.getElementById('pv-date'); if(pvd&&!pvd.value) pvd.value=today(); }
 }
 
@@ -2705,6 +2808,192 @@ function exportCSV(type){
   toast('CSV exported ✓');
 }
 
+
+/* ─── Budget Funding Tracker ─── */
+
+function renderFundingPage(){
+  // Populate form from saved state
+  const el = id => document.getElementById(id);
+  if(el('fund-group'))         el('fund-group').value         = fundingData.group        || '';
+  if(el('fund-target-month'))  el('fund-target-month').value  = fundingData.targetMonth  || '';
+  if(el('fund-target-amount')) el('fund-target-amount').value = fundingData.targetAmount || '';
+  if(!window._fundManualOverride && fundingData.syncedAmount !== undefined){
+    if(el('fund-funded-amount')) el('fund-funded-amount').value = fundingData.syncedAmount;
+  } else {
+    if(el('fund-funded-amount')) el('fund-funded-amount').value = fundingData.fundedAmount || '';
+  }
+  const badge = el('fund-sync-badge');
+  if(badge) badge.style.display = fundingData.syncedAmount !== undefined ? '' : 'none';
+  // Set today's date on log form
+  const ld = el('fund-log-date');
+  if(ld && !ld.value) ld.value = today();
+  renderFunding();
+}
+
+function saveFundingSetting(){
+  const g = document.getElementById('fund-group')?.value || '';
+  const m = document.getElementById('fund-target-month')?.value || '';
+  const t = parseFloat(document.getElementById('fund-target-amount')?.value) || 0;
+  const f = parseFloat(document.getElementById('fund-funded-amount')?.value) || 0;
+  fundingData.group         = g;
+  fundingData.targetMonth   = m;
+  fundingData.targetAmount  = t;
+  fundingData.fundedAmount  = f;
+  API.save();
+}
+
+function renderFunding(){
+  const targetAmount = parseFloat(document.getElementById('fund-target-amount')?.value) || 0;
+  const targetMonth  = document.getElementById('fund-target-month')?.value || '';
+  const group        = document.getElementById('fund-group')?.value || '';
+
+  // Get funded amount — prefer synced value unless user overrode
+  let funded = parseFloat(document.getElementById('fund-funded-amount')?.value) || 0;
+  if(!window._fundManualOverride && fundingData.syncedAmount !== undefined){
+    funded = fundingData.syncedAmount;
+    const el = document.getElementById('fund-funded-amount');
+    if(el) el.value = funded.toFixed(2);
+  }
+
+  const results = document.getElementById('fund-results');
+  if(!results) return;
+
+  if(!targetAmount || !targetMonth){
+    results.style.display = 'none';
+    return;
+  }
+  results.style.display = '';
+
+  const remaining = Math.max(0, targetAmount - funded);
+  const pct       = Math.min(100, targetAmount > 0 ? (funded/targetAmount*100) : 0);
+  const complete   = remaining < 0.01;
+
+  // Title
+  const [yr, mo] = targetMonth.split('-').map(Number);
+  const monthLabel = new Date(yr, mo-1, 1).toLocaleDateString('en-AU',{month:'long',year:'numeric'});
+  const titleEl = document.getElementById('fund-results-title');
+  if(titleEl) titleEl.textContent = (group || 'Category') + ' — ' + monthLabel;
+
+  // Progress bar
+  const bar = document.getElementById('fund-progress-bar');
+  if(bar){
+    bar.style.width = pct.toFixed(1) + '%';
+    bar.style.background = complete ? '#1D9E75' : pct >= 75 ? '#EF9F27' : 'var(--green-mid)';
+  }
+  const barPct = document.getElementById('fund-bar-pct');
+  if(barPct) barPct.textContent = pct.toFixed(1) + '% funded' + (complete ? ' ✓ Complete!' : '');
+  const barLeft  = document.getElementById('fund-bar-label-left');
+  const barRight = document.getElementById('fund-bar-label-right');
+  if(barLeft)  barLeft.textContent  = fmt(funded) + ' funded';
+  if(barRight) barRight.textContent = fmt(targetAmount) + ' target';
+
+  // Metrics
+  const metricsEl = document.getElementById('fund-metrics');
+  if(metricsEl) metricsEl.innerHTML =
+    `<div class="metric ${complete?'green':''}">
+      <div class="m-lbl">Still needed</div>
+      <div class="m-val" style="color:${complete?'var(--green-mid)':'var(--text)'}">${complete?'$0.00':fmt(remaining)}</div>
+      <div class="m-sub">${complete?'Fully funded! 🎉':'to reach target'}</div>
+    </div>
+    <div class="metric">
+      <div class="m-lbl">Already funded</div>
+      <div class="m-val">${fmt(funded)}</div>
+      <div class="m-sub">of ${fmt(targetAmount)} target</div>
+    </div>
+    <div class="metric">
+      <div class="m-lbl">Target month</div>
+      <div class="m-val" style="font-size:14px">${monthLabel}</div>
+      <div class="m-sub">${daysUntilMonth(yr,mo-1)} days away</div>
+    </div>`;
+
+  // Days info
+  const daysLeft = daysUntilMonth(yr, mo-1);
+  const daysInfo = document.getElementById('fund-days-info');
+  if(daysInfo){
+    if(complete){
+      daysInfo.innerHTML = '✓ <strong>Fully funded</strong> — '+monthLabel+' is ready. Time to move to the next month!';
+      daysInfo.style.background = 'rgba(29,158,117,0.1)';
+      daysInfo.style.color = 'var(--green-mid)';
+    } else {
+      daysInfo.innerHTML = monthLabel+' is <strong>'+daysLeft+' days away</strong>. '
+        +(daysLeft > 0
+          ? 'You have <strong>'+(Math.floor(daysLeft/14))+' fortnightly pays</strong> (approx) to fund the remaining <strong>'+fmt(remaining)+'</strong>.'
+          : 'This month has already started — fund as soon as possible.');
+      daysInfo.style.background = 'var(--surface2)';
+      daysInfo.style.color = 'var(--muted)';
+    }
+  }
+
+  // Funding log
+  renderFundingLog();
+}
+
+function daysUntilMonth(year, monthIdx){
+  const target = new Date(year, monthIdx, 1);
+  const today  = new Date();
+  today.setHours(0,0,0,0);
+  return Math.max(0, Math.round((target - today)/(1000*60*60*24)));
+}
+
+function addFundingLogEntry(){
+  const form = document.getElementById('fund-log-form');
+  if(form){
+    form.style.display = form.style.display === 'none' ? '' : 'none';
+    const ld = document.getElementById('fund-log-date');
+    if(ld && !ld.value) ld.value = today();
+  }
+}
+
+function saveFundingLogEntry(){
+  const date   = document.getElementById('fund-log-date')?.value;
+  const amount = parseFloat(document.getElementById('fund-log-amount')?.value);
+  const note   = document.getElementById('fund-log-note')?.value || '';
+  if(!date){ toast('Please select a date'); return; }
+  if(isNaN(amount)||amount<0){ toast('Please enter an amount'); return; }
+
+  if(!fundingData.log) fundingData.log = [];
+  fundingData.log.unshift({ id:Date.now(), date, amount, note });
+  fundingData.log.sort((a,b)=>b.date.localeCompare(a.date));
+
+  // Update funded amount to the latest log entry total if it's the most recent
+  // Just use the manual amount the user entered for the funded field
+  const fundedEl = document.getElementById('fund-funded-amount');
+  if(fundedEl) fundedEl.value = amount.toFixed(2);
+  fundingData.fundedAmount = amount;
+  window._fundManualOverride = true;
+
+  API.save();
+  document.getElementById('fund-log-form').style.display = 'none';
+  document.getElementById('fund-log-amount').value = '';
+  document.getElementById('fund-log-note').value = '';
+  renderFunding();
+  toast('Funding update logged ✓');
+}
+
+function deleteFundingLogEntry(id){
+  fundingData.log = (fundingData.log||[]).filter(e=>e.id!==id);
+  API.save();
+  renderFundingLog();
+  toast('Entry removed');
+}
+
+function renderFundingLog(){
+  const el = document.getElementById('fund-log-list');
+  if(!el) return;
+  const log = fundingData.log || [];
+  if(!log.length){
+    el.innerHTML = '<div style="font-size:12px;color:var(--muted);padding:8px 0">No manual updates logged yet. Auto-sync from Actual Budget will appear here.</div>';
+    return;
+  }
+  el.innerHTML = log.map(e=>`
+    <div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:0.5px solid var(--border);font-size:12px">
+      <span class="date-badge">${e.date}</span>
+      <span style="font-weight:500">${fmt(e.amount)}</span>
+      <span style="color:var(--muted);flex:1">${e.note||''}</span>
+      <button class="btn icon-only small" onclick="deleteFundingLogEntry(${e.id})" aria-label="Delete">✕</button>
+    </div>`).join('');
+}
+
 /* ─── Data export / import ─── */
 function exportData(){
   const data={settings,log:logEntries,reconcile:reconcileEntries,propValueLog,exported:new Date().toISOString()};
@@ -2771,6 +3060,7 @@ async function init(){
     if(data.log)           logEntries       = data.log;
     if(data.reconcile)     reconcileEntries = data.reconcile;
     if(data.propValueLog)  propValueLog     = data.propValueLog;
+    if(data.fundingData)   fundingData      = {...{group:'',targetMonth:'',targetAmount:0,fundedAmount:0,log:[]}, ...data.fundingData};
   }
   // Restore dashboard
   el.innerHTML = `

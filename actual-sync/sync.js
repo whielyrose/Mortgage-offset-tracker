@@ -334,6 +334,64 @@ async function main() {
     });
     console.log('✓ Mortgage tracker updated successfully');
 
+    // ── Sync funding group balance if configured ─────────────────────────────
+    if (mortgageData.fundingData?.group) {
+      const groupName = mortgageData.fundingData.group;
+      try {
+        // Re-connect to Actual to read category group balances
+        await actualAPI.init({ serverURL: ACTUAL_SERVER_URL, password: ACTUAL_SERVER_PASSWORD, dataDir: CACHE_DIR });
+        await actualAPI.downloadBudget(ACTUAL_SYNC_ID, { password: ACTUAL_FILE_PASSWORD });
+
+        const categories = await actualAPI.getCategories();
+        const categoryGroups = await actualAPI.getCategoryGroups();
+
+        // Find the matching group
+        const group = categoryGroups.find(g =>
+          g.name.toLowerCase() === groupName.toLowerCase() && !g.hidden
+        );
+
+        if (group) {
+          // Sum budgeted amounts for categories in this group for the target month
+          const targetMonth = mortgageData.fundingData.targetMonth; // YYYY-MM
+          if (targetMonth) {
+            const [yr, mo] = targetMonth.split('-').map(Number);
+            const groupCategories = categories.filter(c => c.group_id === group.id && !c.hidden);
+            let totalBudgeted = 0;
+            for (const cat of groupCategories) {
+              try {
+                const budget = await actualAPI.getBudgetMonth(`${yr}-${String(mo).padStart(2,'0')}`);
+                const catBudget = budget?.categoryGroups
+                  ?.find(g => g.id === group.id)
+                  ?.categories?.find(c => c.id === cat.id)?.budgeted || 0;
+                totalBudgeted += catBudget;
+              } catch(e) {}
+            }
+            const budgetedDollars = totalBudgeted / 100;
+            console.log(`\n💰 Funding sync — ${groupName} (${targetMonth}): ${fmtMoney(budgetedDollars)}`);
+            // Update fundingData syncedAmount
+            if (!mortgageData.fundingData) mortgageData.fundingData = {};
+            mortgageData.fundingData.syncedAmount   = budgetedDollars;
+            mortgageData.fundingData.syncedAt       = localNow;
+            // Re-post with updated fundingData
+            await postToMortgageTracker({
+              settings:     mortgageData.settings,
+              log,
+              reconcile:    mortgageData.reconcile || [],
+              propValueLog: mortgageData.propValueLog || [],
+              fundingData:  mortgageData.fundingData
+            });
+            console.log('✓ Funding balance synced');
+          }
+        } else {
+          console.log(`\n⚠  Funding group "${groupName}" not found in Actual Budget`);
+        }
+        await actualAPI.shutdown();
+      } catch(e) {
+        console.warn('\n⚠  Funding group sync failed:', e.message);
+        try { await actualAPI.shutdown(); } catch(_) {}
+      }
+    }
+
     // Notify any open browser tabs to refresh immediately
     try{
       const notifyResp = await fetch(`${MORTGAGE_API_URL}/api/notify`, { method: 'POST' });

@@ -262,37 +262,124 @@ async function main() {
           console.log(`  ⚠  No categories found in group for ${targetMonth}`);
         }
 
-        // Probe each budget table separately so one failure doesn't stop the rest
+        // ── READ-ONLY template evaluator ────────────────────────────────────
+        // Actual only stores the computed goal AFTER you apply templates (a write
+        // we must never do). So we evaluate the templates ourselves, read-only:
+        //   - simple template  → monthly amount
+        //   - schedule template → schedule amount × occurrences in target month
         const runQuery = actualAPI.runQuery || actualAPI.aqlQuery;
-        const monthInt = Number(targetMonth.replace('-',''));
-        async function tryProbe(label, fn){
-          try { const r = await fn(); console.log(`  DEBUG ${label}:`, JSON.stringify(r?.data?.slice(0,4), null, 2)); }
-          catch(e){ console.log(`  DEBUG ${label} FAILED:`, e.message); }
+
+        // Pull goal_def for every category in the group (the template definition)
+        let goalDefs = {};
+        try {
+          const gd = await runQuery(actualAPI.q('categories').filter({ 'group.id': group.id }).select(['id','name','goal_def']));
+          (gd?.data || []).forEach(c => { goalDefs[c.id] = c.goal_def; });
+        } catch(e){ console.warn('  goal_def read failed:', e.message); }
+
+        // Pull all schedules (read-only) and index by lowercased name
+        let schedulesByName = {};
+        try {
+          const allSchedules = await actualAPI.getSchedules();
+          (allSchedules || []).forEach(s => {
+            if (s.name) schedulesByName[s.name.toLowerCase()] = s;
+          });
+        } catch(e){ console.warn('  schedules read failed:', e.message); }
+
+        // Count how many times a schedule occurs within a given YYYY-MM
+        function occurrencesInMonth(schedule, ymStr){
+          const [yr, mo] = ymStr.split('-').map(Number);
+          const monthStart = new Date(yr, mo - 1, 1);
+          const monthEnd   = new Date(yr, mo, 0); // last day of month
+          const dateCfg = schedule._date || schedule.date;
+          if (!dateCfg) return 0;
+
+          // Single (non-recurring) date
+          if (typeof dateCfg === 'string') {
+            const d = new Date(dateCfg);
+            return (d >= monthStart && d <= monthEnd) ? 1 : 0;
+          }
+
+          const freq     = dateCfg.frequency || 'monthly';
+          const interval = dateCfg.interval || 1;
+          const startStr = dateCfg.start || dateCfg.startDate;
+          if (!startStr) return 0;
+          let cursor = new Date(startStr);
+
+          // Walk backwards isn't needed; step forward from start until past monthEnd.
+          // Cap iterations to avoid any infinite loop.
+          let count = 0, iter = 0;
+          // Fast-forward cursor close to monthStart for far-past start dates
+          // (only for daily/weekly to keep it cheap)
+          while (cursor < monthStart && iter < 5000) {
+            cursor = stepDate(cursor, freq, interval);
+            iter++;
+          }
+          iter = 0;
+          while (cursor <= monthEnd && iter < 400) {
+            if (cursor >= monthStart && cursor <= monthEnd) count++;
+            cursor = stepDate(cursor, freq, interval);
+            iter++;
+          }
+          return count;
         }
-        if (actualAPI.q && runQuery) {
-          await tryProbe('zero_budgets', () => runQuery(actualAPI.q('zero_budgets').filter({ month: monthInt }).select(['category','amount','goal','long_goal'])));
-          await tryProbe('reflect_budgets', () => runQuery(actualAPI.q('reflect_budgets').filter({ month: monthInt }).select(['category','amount','goal','long_goal'])));
-          await tryProbe('budgets', () => runQuery(actualAPI.q('budgets').filter({ month: monthInt }).select('*')));
+
+        function stepDate(d, freq, interval){
+          const n = new Date(d);
+          if (freq === 'daily')   n.setDate(n.getDate() + interval);
+          else if (freq === 'weekly')  n.setDate(n.getDate() + 7 * interval);
+          else if (freq === 'monthly') n.setMonth(n.getMonth() + interval);
+          else if (freq === 'yearly')  n.setFullYear(n.getFullYear() + interval);
+          else n.setMonth(n.getMonth() + interval);
+          return n;
+        }
+
+        // Evaluate one category's template(s) → needed dollars for the target month
+        function evalNeeded(catId){
+          const raw = goalDefs[catId];
+          if (!raw) return { needed: 0, source: 'none' };
+          let defs;
+          try { defs = JSON.parse(raw); } catch(e){ return { needed: 0, source: 'none' }; }
+          if (!Array.isArray(defs) || !defs.length) return { needed: 0, source: 'none' };
+
+          let total = 0;
+          let sawSomething = false;
+          for (const def of defs) {
+            if (def.type === 'simple' && def.monthly != null) {
+              total += Number(def.monthly);          // dollars
+              sawSomething = true;
+            } else if (def.type === 'schedule' && def.name) {
+              const sch = schedulesByName[def.name.toLowerCase()];
+              if (sch) {
+                const amtCents = Math.abs(sch._amount != null ? sch._amount : (sch.amount || 0));
+                const occ = occurrencesInMonth(sch, targetMonth);
+                total += (amtCents / 100) * occ;
+                sawSomething = true;
+              }
+            } else if (def.type === 'by' && def.amount != null) {
+              // "save X by date" — approximate as monthly share isn't trivial; count full amount in target month if due
+              total += Number(def.amount);
+              sawSomething = true;
+            } else if (def.monthly != null) {
+              total += Number(def.monthly);
+              sawSomething = true;
+            } else if (def.amount != null) {
+              total += Number(def.amount);
+              sawSomething = true;
+            }
+          }
+          return { needed: Math.round(total * 100) / 100, source: sawSomething ? 'template' : 'none' };
         }
 
         const categories = [];
+
         let totalNeeded = 0, totalFunded = 0;
 
         for (const cat of targetCats) {
           if (cat.hidden) continue;
           const funded = (cat.budgeted || 0) / 100;
 
-          // Actual exposes the goal under various keys depending on version/template type.
-          // Check every plausible field (camelCase and snake_case).
-          let goalCents = null;
-          for (const key of ['goal','long_goal','longGoal','goal_def','goalValue','target']) {
-            if (cat[key] !== null && cat[key] !== undefined && typeof cat[key] === 'number') {
-              goalCents = cat[key];
-              break;
-            }
-          }
-          const needed = goalCents !== null ? goalCents / 100 : 0;
-          const source = goalCents !== null ? 'goal' : 'none';
+          // Read-only: compute needed from the category's template(s)
+          const { needed, source } = evalNeeded(cat.id);
 
           const remaining = Math.max(0, needed - funded);
           totalNeeded += needed;
@@ -310,9 +397,7 @@ async function main() {
 
         const noGoalCount = categories.filter(c => c.source === 'none').length;
         if (noGoalCount > 0) {
-          console.log(`\n  ⚠  ${noGoalCount} categor${noGoalCount===1?'y has':'ies have'} no goal value for this month — needed treated as $0`);
-          console.log(`     (Goals come from templates/schedules. If you use schedule-linked templates, make sure`);
-          console.log(`      the goal shows in Actual's UI for ${targetMonth} when you hover the balance column.)`);
+          console.log(`\n  ⚠  ${noGoalCount} categor${noGoalCount===1?'y has':'ies have'} no template/schedule set — needed treated as $0`);
         }
 
         const totalRemaining = Math.max(0, totalNeeded - totalFunded);

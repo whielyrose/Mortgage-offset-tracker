@@ -2930,7 +2930,7 @@ function renderFunding(){
             : partial
               ? '<span style="color:#EF9F27;font-weight:500">Partial</span>'
               : '<span style="color:var(--red);font-weight:500">Unfunded</span>';
-          const src = c.source==='goal' ? 'Goal/Schedule' : '<span style="color:var(--red)">No goal set</span>';
+          const src = c.source==='template' ? 'Template/Schedule' : '<span style="color:var(--red)">No template</span>';
           return '<tr>'
             +'<td>'+c.name+'</td>'
             +'<td style="text-align:right">'+fmt(c.needed)+'</td>'

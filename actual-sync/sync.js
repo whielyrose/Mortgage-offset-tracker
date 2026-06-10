@@ -272,9 +272,15 @@ async function main() {
           if (cat.hidden) continue;
           const funded = (cat.budgeted || 0) / 100;
 
-          const goalCents = (cat.goal !== null && cat.goal !== undefined) ? cat.goal
-                          : (cat.longGoal !== null && cat.longGoal !== undefined) ? cat.longGoal
-                          : null;
+          // Actual exposes the goal under various keys depending on version/template type.
+          // Check every plausible field (camelCase and snake_case).
+          let goalCents = null;
+          for (const key of ['goal','long_goal','longGoal','goal_def','goalValue','target']) {
+            if (cat[key] !== null && cat[key] !== undefined && typeof cat[key] === 'number') {
+              goalCents = cat[key];
+              break;
+            }
+          }
           const needed = goalCents !== null ? goalCents / 100 : 0;
           const source = goalCents !== null ? 'goal' : 'none';
 

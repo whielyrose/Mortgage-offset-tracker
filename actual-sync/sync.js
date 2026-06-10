@@ -365,7 +365,10 @@ async function main() {
         // Evaluate one category's template(s) → needed dollars for the target month,
         // matching Actual's schedule-template logic: for a future-dated bill, set
         // aside amount ÷ (months until it's due) so it's fully funded in time.
-        function evalNeeded(catId){
+        function evalNeeded(cat){
+          const catId = cat.id;
+          // Carryover already saved in this category before this month's budgeting
+          const carryover = ((cat.balance || 0) - (cat.budgeted || 0)) / 100;
           const raw = goalDefs[catId];
           if (!raw) return { needed: 0, source: 'none' };
           let defs;
@@ -388,10 +391,13 @@ async function main() {
                   // Sub-monthly / monthly bills land in full each period
                   total += amt * occurrencesInMonth(sch, targetMonth);
                 } else {
-                  // Multi-month: divide by months remaining until the next due date
+                  // Multi-month lump sum (yearly/quarterly): Actual budgets the
+                  // REMAINING amount (target minus what's already saved) spread
+                  // over the months until it's due.
                   const due = nextOccurrenceOnOrAfter(sch, targetMonth);
-                  if (due) total += amt / monthsUntil(targetMonth, due);
-                  else     total += amt / cyc; // fallback to even spread
+                  const months = due ? monthsUntil(targetMonth, due) : cyc;
+                  const remainingToSave = Math.max(0, amt - Math.max(0, carryover));
+                  total += remainingToSave / months;
                 }
                 sawSomething = true;
               }
@@ -420,7 +426,7 @@ async function main() {
           const funded = (cat.budgeted || 0) / 100;
 
           // Read-only: compute needed from the category's template(s)
-          const { needed, source } = evalNeeded(cat.id);
+          const { needed, source } = evalNeeded(cat);
 
           const remaining = Math.max(0, needed - funded);
           totalNeeded += needed;

@@ -322,22 +322,49 @@ async function main() {
           return n;
         }
 
-        // How many months between occurrences of this schedule (its cycle length)
+        // Find the next occurrence date on/after a given month start
+        function nextOccurrenceOnOrAfter(schedule, ymStr){
+          const [yr, mo] = ymStr.split('-').map(Number);
+          const monthStart = new Date(yr, mo - 1, 1);
+          const dateCfg = schedule._date || schedule.date;
+          if (!dateCfg) return null;
+          if (typeof dateCfg === 'string') {
+            const d = new Date(dateCfg);
+            return d >= monthStart ? d : null;
+          }
+          const freq     = dateCfg.frequency || 'monthly';
+          const interval = dateCfg.interval || 1;
+          const startStr = dateCfg.start || dateCfg.startDate;
+          if (!startStr) return null;
+          let cursor = new Date(startStr);
+          let iter = 0;
+          while (cursor < monthStart && iter < 6000) { cursor = stepDate(cursor, freq, interval); iter++; }
+          return cursor;
+        }
+
+        // Whole months from a month-start (YYYY-MM) to a target date, inclusive of
+        // the due month. e.g. due this month → 1; due next month → 2.
+        function monthsUntil(ymStr, dueDate){
+          const [yr, mo] = ymStr.split('-').map(Number);
+          const months = (dueDate.getFullYear() - yr) * 12 + (dueDate.getMonth() - (mo - 1));
+          return Math.max(1, months + 1);
+        }
+
         function cycleMonths(schedule){
           const dateCfg = schedule._date || schedule.date;
           if (!dateCfg || typeof dateCfg === 'string') return 1;
           const freq     = dateCfg.frequency || 'monthly';
           const interval = dateCfg.interval || 1;
           if (freq === 'daily')   return (interval) / 30;
-          if (freq === 'weekly')  return (interval * 7) / 30;   // fortnightly ≈ 0.47
+          if (freq === 'weekly')  return (interval * 7) / 30;
           if (freq === 'monthly') return interval;
           if (freq === 'yearly')  return interval * 12;
           return interval;
         }
 
-        // Evaluate one category's template(s) → needed dollars for the target month.
-        // Respects the 'full' flag: full=true budgets the whole amount in the due
-        // month; otherwise the cost is spread evenly across the schedule's cycle.
+        // Evaluate one category's template(s) → needed dollars for the target month,
+        // matching Actual's schedule-template logic: for a future-dated bill, set
+        // aside amount ÷ (months until it's due) so it's fully funded in time.
         function evalNeeded(catId){
           const raw = goalDefs[catId];
           if (!raw) return { needed: 0, source: 'none' };
@@ -356,14 +383,15 @@ async function main() {
                 const amt = Math.abs(sch._amount != null ? sch._amount : (sch.amount || 0)) / 100;
                 const cyc = cycleMonths(sch);
                 if (def.full === true) {
-                  // Budget the full amount only in the month it falls due
                   total += amt * occurrencesInMonth(sch, targetMonth);
                 } else if (cyc <= 1.0001) {
-                  // Sub-monthly / monthly: the payments that actually land this month
+                  // Sub-monthly / monthly bills land in full each period
                   total += amt * occurrencesInMonth(sch, targetMonth);
                 } else {
-                  // Multi-month cycle (quarterly, yearly): spread evenly per month
-                  total += amt / cyc;
+                  // Multi-month: divide by months remaining until the next due date
+                  const due = nextOccurrenceOnOrAfter(sch, targetMonth);
+                  if (due) total += amt / monthsUntil(targetMonth, due);
+                  else     total += amt / cyc; // fallback to even spread
                 }
                 sawSomething = true;
               }
@@ -382,6 +410,7 @@ async function main() {
         }
 
         const categories = [];
+
 
 
         let totalNeeded = 0, totalFunded = 0;

@@ -262,31 +262,18 @@ async function main() {
           console.log(`  ⚠  No categories found in group for ${targetMonth}`);
         }
 
-        // Trigger Actual's goal evaluation, then re-read the budget month
-        let goalLookup = {};
-        try {
-          await actualAPI.getBudgets();
-        } catch(e){ console.log('  DEBUG getBudgets:', e.message); }
-
-        // Try reading goal + long_goal columns directly via query for the target month
-        try {
-          const runQuery = actualAPI.runQuery || actualAPI.aqlQuery;
-          if (actualAPI.q && runQuery) {
-            const zm = await runQuery(actualAPI.q('zero_budget_months').filter({ id: targetMonth }).select('*'));
-            console.log('  DEBUG zero_budget_months:', JSON.stringify(zm?.data, null, 2));
-            const zb = await runQuery(actualAPI.q('zero_budgets').filter({ month: Number(targetMonth.replace('-','')) }).select('*'));
-            console.log('  DEBUG zero_budgets:', JSON.stringify(zb?.data?.slice(0,6), null, 2));
-            const rb = await runQuery(actualAPI.q('reflect_budgets').filter({ month: Number(targetMonth.replace('-','')) }).select('*'));
-            console.log('  DEBUG reflect_budgets:', JSON.stringify(rb?.data?.slice(0,6), null, 2));
-          }
-        } catch(e){ console.log('  DEBUG budget table probe:', e.message); }
-
-        // DEBUG: re-fetch budget month after getBudgets and dump first category
-        try {
-          const tb2 = await actualAPI.getBudgetMonth(targetMonth);
-          const tg2 = tb2?.categoryGroups?.find(cg => cg.id === group.id);
-          console.log('  DEBUG budget cat after getBudgets:', JSON.stringify(tg2?.categories?.slice(0,2), null, 2));
-        } catch(e){ console.log('  DEBUG refetch:', e.message); }
+        // Probe each budget table separately so one failure doesn't stop the rest
+        const runQuery = actualAPI.runQuery || actualAPI.aqlQuery;
+        const monthInt = Number(targetMonth.replace('-',''));
+        async function tryProbe(label, fn){
+          try { const r = await fn(); console.log(`  DEBUG ${label}:`, JSON.stringify(r?.data?.slice(0,4), null, 2)); }
+          catch(e){ console.log(`  DEBUG ${label} FAILED:`, e.message); }
+        }
+        if (actualAPI.q && runQuery) {
+          await tryProbe('zero_budgets', () => runQuery(actualAPI.q('zero_budgets').filter({ month: monthInt }).select(['category','amount','goal','long_goal'])));
+          await tryProbe('reflect_budgets', () => runQuery(actualAPI.q('reflect_budgets').filter({ month: monthInt }).select(['category','amount','goal','long_goal'])));
+          await tryProbe('budgets', () => runQuery(actualAPI.q('budgets').filter({ month: monthInt }).select('*')));
+        }
 
         const categories = [];
         let totalNeeded = 0, totalFunded = 0;

@@ -194,7 +194,18 @@ async function main() {
   validateConfig();
   if (DRY_RUN) console.log('⚠  DRY RUN — no data will be written\n');
 
-  // ── 1. Connect to Actual Budget ───────────────────────────────────────────
+  // ── 1. Load mortgage tracker data FIRST (need fundingData config) ─────────
+  console.log('\n📊 Loading mortgage tracker data...');
+  let mortgageData;
+  try {
+    mortgageData = await loadCurrentMortgageData();
+    console.log('✓ Mortgage tracker data loaded');
+  } catch (e) {
+    console.error(`❌ Could not reach mortgage tracker API: ${e.message}`);
+    process.exit(1);
+  }
+
+  // ── 2. Connect to Actual Budget (single connection for everything) ────────
   console.log(`\n📡 Connecting to Actual Budget at ${ACTUAL_SERVER_URL}...`);
   if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR, { recursive: true });
 
@@ -202,7 +213,7 @@ async function main() {
   await actualAPI.downloadBudget(ACTUAL_SYNC_ID, { password: ACTUAL_FILE_PASSWORD });
   console.log('✓ Connected and budget downloaded');
 
-  // ── 2. Read all on-budget accounts ───────────────────────────────────────
+  // ── 3. Read all on-budget accounts ────────────────────────────────────────
   console.log('\n🏦 Reading on-budget accounts...');
   const accounts = await actualAPI.getAccounts();
   const onBudget = accounts.filter(a => !a.offbudget && !a.closed);
@@ -225,23 +236,91 @@ async function main() {
   const totalDollars = totalCents / 100;
   console.log(`\n  ${'TOTAL OFFSET'.padEnd(35)} ${fmtMoney(totalDollars)}`);
 
+  // ── 4. Funding analysis (same connection) ─────────────────────────────────
+  // "Needed" per category = the goal Actual computes for the target month from
+  // schedules/templates — the figure shown when hovering the balance column.
+  if (mortgageData.fundingData?.group && mortgageData.fundingData?.targetMonth) {
+    const groupName   = mortgageData.fundingData.group;
+    const targetMonth = mortgageData.fundingData.targetMonth; // YYYY-MM
+    try {
+      const categoryGroups = await actualAPI.getCategoryGroups();
+      const group = categoryGroups.find(g =>
+        g.name.toLowerCase() === groupName.toLowerCase() && !g.hidden
+      );
+
+      if (!group) {
+        console.log(`\n⚠  Funding group "${groupName}" not found in Actual Budget`);
+        console.log(`   Available groups: ${categoryGroups.filter(g=>!g.hidden).map(g=>g.name).join(', ')}`);
+      } else {
+        console.log(`\n💰 Analysing funding for "${group.name}" — target ${targetMonth}`);
+
+        const targetBudget = await actualAPI.getBudgetMonth(targetMonth);
+        const targetGroup  = targetBudget?.categoryGroups?.find(cg => cg.id === group.id);
+        const targetCats   = targetGroup?.categories || [];
+
+        if (!targetCats.length) {
+          console.log(`  ⚠  No categories found in group for ${targetMonth}`);
+        }
+
+        const categories = [];
+        let totalNeeded = 0, totalFunded = 0;
+
+        for (const cat of targetCats) {
+          if (cat.hidden) continue;
+          const funded = (cat.budgeted || 0) / 100;
+
+          const goalCents = (cat.goal !== null && cat.goal !== undefined) ? cat.goal
+                          : (cat.longGoal !== null && cat.longGoal !== undefined) ? cat.longGoal
+                          : null;
+          const needed = goalCents !== null ? goalCents / 100 : 0;
+          const source = goalCents !== null ? 'goal' : 'none';
+
+          const remaining = Math.max(0, needed - funded);
+          totalNeeded += needed;
+          totalFunded += Math.min(funded, needed);
+          categories.push({
+            name: cat.name,
+            needed:    Math.round(needed*100)/100,
+            funded:    Math.round(funded*100)/100,
+            remaining: Math.round(remaining*100)/100,
+            source
+          });
+          const flag = needed === 0 ? '·' : remaining < 0.01 ? '✓' : '○';
+          console.log(`  ${flag}  ${cat.name.padEnd(30)} needed ${fmtMoney(needed).padStart(12)}  funded ${fmtMoney(funded).padStart(12)}  remaining ${fmtMoney(remaining).padStart(12)}  [${source}]`);
+        }
+
+        const noGoalCount = categories.filter(c => c.source === 'none').length;
+        if (noGoalCount > 0) {
+          console.log(`\n  ⚠  ${noGoalCount} categor${noGoalCount===1?'y has':'ies have'} no goal value for this month — needed treated as $0`);
+          console.log(`     (Goals come from templates/schedules. If you use schedule-linked templates, make sure`);
+          console.log(`      the goal shows in Actual's UI for ${targetMonth} when you hover the balance column.)`);
+        }
+
+        const totalRemaining = Math.max(0, totalNeeded - totalFunded);
+        console.log(`\n  TOTAL — needed ${fmtMoney(totalNeeded)}, funded ${fmtMoney(totalFunded)}, remaining ${fmtMoney(totalRemaining)}`);
+
+        mortgageData.fundingData.breakdown = {
+          group: group.name,
+          targetMonth,
+          categories,
+          totalNeeded:    Math.round(totalNeeded*100)/100,
+          totalFunded:    Math.round(totalFunded*100)/100,
+          totalRemaining: Math.round(totalRemaining*100)/100,
+          syncedAt: localNow + ' (' + TZ + ')'
+        };
+      }
+    } catch(e) {
+      console.warn('\n⚠  Funding analysis failed:', e.message);
+    }
+  }
+
+  // ── 5. Close Actual connection (everything read) ──────────────────────────
   await actualAPI.shutdown();
   console.log('\n✓ Actual Budget connection closed');
 
-  // ── 3. Load current mortgage tracker data ────────────────────────────────
-  console.log('\n📊 Loading mortgage tracker data...');
-  let mortgageData;
-  try {
-    mortgageData = await loadCurrentMortgageData();
-    console.log('✓ Mortgage tracker data loaded');
-  } catch (e) {
-    console.error(`❌ Could not reach mortgage tracker API: ${e.message}`);
-    process.exit(1);
-  }
-
   const log = mortgageData.log || [];
 
-  // ── 4. Update offset balance log entry ───────────────────────────────────
+  // ── 6. Update offset balance log entry ────────────────────────────────────
   const today = localDate;
   const existingIdx = log.findIndex(e =>
     e.type === 'offset' && e.date === today &&
@@ -264,45 +343,39 @@ async function main() {
     log.unshift(offsetEntry);
   }
 
-  // ── 5. Monthly interest charge (last day of month, or catch-up on 1st) ───
+  // ── 7. Monthly interest charge (last day of month, or catch-up on 1st) ────
   let interestEntry = null;
-  let targetMonth   = null;
+  let targetMonthIC = null;
 
   if (isLastDayOfMonth(today)) {
-    targetMonth = today.slice(0, 7); // YYYY-MM
+    targetMonthIC = today.slice(0, 7);
     console.log(`\n📅 Last day of month detected (${today})`);
   } else if (isFirstDayOfMonth(today)) {
     const prev = prevMonthStr(today);
     if (!interestChargeAlreadyExists(log, prev)) {
-      targetMonth = prev;
-      console.log(`\n📅 First day of month — checking if last month's interest was posted...`);
-      console.log(`   No interest charge found for ${prev} — calculating catch-up`);
+      targetMonthIC = prev;
+      console.log(`\n📅 First day of month — no interest charge found for ${prev} — calculating catch-up`);
     } else {
-      console.log(`\n📅 First day of month — ${prevMonthStr(today)} interest already posted ✓`);
+      console.log(`\n📅 First day of month — ${prev} interest already posted ✓`);
     }
   }
 
-  if (targetMonth) {
-    // Remove any existing auto-calculated charge for this month (recalculate fresh)
+  if (targetMonthIC) {
     const existingChargeIdx = log.findIndex(e =>
-      e.type === 'interest-charge' && e.date.startsWith(targetMonth) &&
+      e.type === 'interest-charge' && e.date.startsWith(targetMonthIC) &&
       e.note && e.note.includes('auto-calculated')
     );
     if (existingChargeIdx >= 0) {
       log.splice(existingChargeIdx, 1);
-      console.log(`   Removed previous auto-calculated charge for ${targetMonth}`);
+      console.log(`   Removed previous auto-calculated charge for ${targetMonthIC}`);
     }
 
-    // Calculate interest for the target month
-    // First make sure today's offset is reflected in the data for the calculation
     const tempData = { ...mortgageData, log };
-    const estimatedInterest = calcMonthInterest(targetMonth, tempData);
-    const { year, month } = getLocalDateParts(targetMonth + '-01');
-    const chargeDay = lastDayOfMonth(year, month - 1 === 0 ? 12 : month);
-    // Wait — month here is 1-based already from the YYYY-MM string
-    const lastDay = lastDayOfMonth(year, month);
-    const chargeDateStr = `${targetMonth}-${String(lastDay).padStart(2,'0')}`;
-    const monthLabel = new Date(year, month - 1, 1).toLocaleDateString('en-AU', { month: 'long', year: 'numeric' });
+    const estimatedInterest = calcMonthInterest(targetMonthIC, tempData);
+    const [icYear, icMonth] = targetMonthIC.split('-').map(Number);
+    const lastDay = lastDayOfMonth(icYear, icMonth);
+    const chargeDateStr = `${targetMonthIC}-${String(lastDay).padStart(2,'0')}`;
+    const monthLabel = new Date(icYear, icMonth - 1, 1).toLocaleDateString('en-AU', { month: 'long', year: 'numeric' });
 
     interestEntry = {
       id: Date.now() + 2,
@@ -316,111 +389,24 @@ async function main() {
     console.log(`\n💰 Interest charge posted for ${monthLabel}:`);
     console.log(`   Date:   ${chargeDateStr}`);
     console.log(`   Amount: ${fmtMoney(estimatedInterest)}`);
-    console.log(`   Note:   auto-calculated — reconcile against your statement to adjust`);
   }
 
-  // ── 6. Post back to mortgage tracker ─────────────────────────────────────
+  // ── 8. Single POST with everything ─────────────────────────────────────────
   if (DRY_RUN) {
     console.log('\n⚠  DRY RUN — would have posted:');
     console.log('  Offset entry:', JSON.stringify(offsetEntry, null, 2));
     if (interestEntry) console.log('  Interest entry:', JSON.stringify(interestEntry, null, 2));
+    if (mortgageData.fundingData?.breakdown) console.log('  Funding breakdown: totalRemaining', mortgageData.fundingData.breakdown.totalRemaining);
   } else {
     console.log('\n📤 Posting to mortgage tracker...');
     await postToMortgageTracker({
-      settings: mortgageData.settings,
+      settings:     mortgageData.settings,
       log,
-      reconcile: mortgageData.reconcile || [],
-      propValueLog: mortgageData.propValueLog || []
+      reconcile:    mortgageData.reconcile || [],
+      propValueLog: mortgageData.propValueLog || [],
+      fundingData:  mortgageData.fundingData || null
     });
     console.log('✓ Mortgage tracker updated successfully');
-
-    // ── Funding analysis: per-category needed vs funded for target month ────
-    // "Needed" comes from each category's goal for that month — Actual computes
-    // this from your schedules and templates, so it's month-accurate (e.g. it
-    // knows whether October has 2 or 3 fortnightly mortgage payments).
-    if (mortgageData.fundingData?.group && mortgageData.fundingData?.targetMonth) {
-      const groupName   = mortgageData.fundingData.group;
-      const targetMonth = mortgageData.fundingData.targetMonth; // YYYY-MM
-      try {
-        await actualAPI.init({ serverURL: ACTUAL_SERVER_URL, password: ACTUAL_SERVER_PASSWORD, dataDir: CACHE_DIR });
-        await actualAPI.downloadBudget(ACTUAL_SYNC_ID, { password: ACTUAL_FILE_PASSWORD });
-
-        const categoryGroups = await actualAPI.getCategoryGroups();
-        const group = categoryGroups.find(g =>
-          g.name.toLowerCase() === groupName.toLowerCase() && !g.hidden
-        );
-
-        if (!group) {
-          console.log(`\n⚠  Funding group "${groupName}" not found in Actual Budget`);
-        } else {
-          console.log(`\n💰 Analysing funding for "${group.name}" — target ${targetMonth}`);
-
-          const targetBudget = await actualAPI.getBudgetMonth(targetMonth);
-          const targetGroup  = targetBudget?.categoryGroups?.find(cg => cg.id === group.id);
-          const targetCats   = targetGroup?.categories || [];
-
-          const categories = [];
-          let totalNeeded = 0, totalFunded = 0;
-
-          for (const cat of targetCats) {
-            if (cat.hidden) continue;
-            const funded = (cat.budgeted || 0) / 100;
-
-            // Needed: the goal Actual computed for this category for this month.
-            // This is what the balance-column hover shows in the Actual UI.
-            const goalCents = (cat.goal !== null && cat.goal !== undefined) ? cat.goal
-                            : (cat.longGoal !== null && cat.longGoal !== undefined) ? cat.longGoal
-                            : null;
-            const needed = goalCents !== null ? goalCents / 100 : 0;
-            const source = goalCents !== null ? 'goal' : 'none';
-
-            const remaining = Math.max(0, needed - funded);
-            totalNeeded += needed;
-            totalFunded += Math.min(funded, needed); // overfunded counts only up to needed
-            categories.push({
-              name: cat.name,
-              needed:    Math.round(needed*100)/100,
-              funded:    Math.round(funded*100)/100,
-              remaining: Math.round(remaining*100)/100,
-              source
-            });
-            const flag = needed === 0 ? '·' : remaining < 0.01 ? '✓' : '○';
-            console.log(`  ${flag}  ${cat.name.padEnd(30)} needed ${fmtMoney(needed).padStart(12)}  funded ${fmtMoney(funded).padStart(12)}  remaining ${fmtMoney(remaining).padStart(12)}  [${source}]`);
-          }
-
-          const noGoalCount = categories.filter(c => c.source === 'none').length;
-          if (noGoalCount > 0) {
-            console.log(`\n  ⚠  ${noGoalCount} categor${noGoalCount===1?'y has':'ies have'} no goal/schedule set in Actual — needed treated as $0`);
-          }
-
-          const totalRemaining = Math.max(0, totalNeeded - totalFunded);
-          console.log(`\n  TOTAL — needed ${fmtMoney(totalNeeded)}, funded ${fmtMoney(totalFunded)}, remaining ${fmtMoney(totalRemaining)}`);
-
-          mortgageData.fundingData.breakdown = {
-            group: group.name,
-            targetMonth,
-            categories,
-            totalNeeded:    Math.round(totalNeeded*100)/100,
-            totalFunded:    Math.round(totalFunded*100)/100,
-            totalRemaining: Math.round(totalRemaining*100)/100,
-            syncedAt: localNow + ' (' + TZ + ')'
-          };
-
-          await postToMortgageTracker({
-            settings:     mortgageData.settings,
-            log,
-            reconcile:    mortgageData.reconcile || [],
-            propValueLog: mortgageData.propValueLog || [],
-            fundingData:  mortgageData.fundingData
-          });
-          console.log('✓ Funding analysis synced');
-        }
-        await actualAPI.shutdown();
-      } catch(e) {
-        console.warn('\n⚠  Funding analysis failed:', e.message);
-        try { await actualAPI.shutdown(); } catch(_) {}
-      }
-    }
 
     // Notify any open browser tabs to refresh immediately
     try{
@@ -436,6 +422,7 @@ async function main() {
   console.log('  Sync complete ✓');
   console.log(`  Total offset logged: ${fmtMoney(totalDollars)}`);
   if (interestEntry) console.log(`  Interest charged:   ${fmtMoney(interestEntry.amount)}`);
+  if (mortgageData.fundingData?.breakdown) console.log(`  Funding remaining:  ${fmtMoney(mortgageData.fundingData.breakdown.totalRemaining)}`);
   console.log('═══════════════════════════════════════════\n');
 }
 

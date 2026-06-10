@@ -334,60 +334,107 @@ async function main() {
     });
     console.log('✓ Mortgage tracker updated successfully');
 
-    // ── Sync funding group balance if configured ─────────────────────────────
-    if (mortgageData.fundingData?.group) {
-      const groupName = mortgageData.fundingData.group;
+    // ── Funding analysis: per-category needed vs funded for target month ────
+    if (mortgageData.fundingData?.group && mortgageData.fundingData?.targetMonth) {
+      const groupName   = mortgageData.fundingData.group;
+      const targetMonth = mortgageData.fundingData.targetMonth; // YYYY-MM
       try {
-        // Re-connect to Actual to read category group balances
         await actualAPI.init({ serverURL: ACTUAL_SERVER_URL, password: ACTUAL_SERVER_PASSWORD, dataDir: CACHE_DIR });
         await actualAPI.downloadBudget(ACTUAL_SYNC_ID, { password: ACTUAL_FILE_PASSWORD });
 
-        const categories = await actualAPI.getCategories();
         const categoryGroups = await actualAPI.getCategoryGroups();
-
-        // Find the matching group
         const group = categoryGroups.find(g =>
           g.name.toLowerCase() === groupName.toLowerCase() && !g.hidden
         );
 
-        if (group) {
-          // Sum budgeted amounts for categories in this group for the target month
-          const targetMonth = mortgageData.fundingData.targetMonth; // YYYY-MM
-          if (targetMonth) {
-            const [yr, mo] = targetMonth.split('-').map(Number);
-            const groupCategories = categories.filter(c => c.group_id === group.id && !c.hidden);
-            let totalBudgeted = 0;
-            for (const cat of groupCategories) {
-              try {
-                const budget = await actualAPI.getBudgetMonth(`${yr}-${String(mo).padStart(2,'0')}`);
-                const catBudget = budget?.categoryGroups
-                  ?.find(g => g.id === group.id)
-                  ?.categories?.find(c => c.id === cat.id)?.budgeted || 0;
-                totalBudgeted += catBudget;
-              } catch(e) {}
-            }
-            const budgetedDollars = totalBudgeted / 100;
-            console.log(`\n💰 Funding sync — ${groupName} (${targetMonth}): ${fmtMoney(budgetedDollars)}`);
-            // Update fundingData syncedAmount
-            if (!mortgageData.fundingData) mortgageData.fundingData = {};
-            mortgageData.fundingData.syncedAmount   = budgetedDollars;
-            mortgageData.fundingData.syncedAt       = localNow;
-            // Re-post with updated fundingData
-            await postToMortgageTracker({
-              settings:     mortgageData.settings,
-              log,
-              reconcile:    mortgageData.reconcile || [],
-              propValueLog: mortgageData.propValueLog || [],
-              fundingData:  mortgageData.fundingData
-            });
-            console.log('✓ Funding balance synced');
-          }
-        } else {
+        if (!group) {
           console.log(`\n⚠  Funding group "${groupName}" not found in Actual Budget`);
+        } else {
+          console.log(`\n💰 Analysing funding for "${group.name}" — target ${targetMonth}`);
+
+          // Reference months: the 3 months before the target (your already-funded months)
+          const [tYr, tMo] = targetMonth.split('-').map(Number);
+          const refMonths = [];
+          for (let i = 1; i <= 3; i++) {
+            const d = new Date(tYr, tMo - 1 - i, 1);
+            refMonths.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);
+          }
+
+          const targetBudget = await actualAPI.getBudgetMonth(targetMonth);
+          const refBudgets = [];
+          for (const m of refMonths) {
+            try { refBudgets.push(await actualAPI.getBudgetMonth(m)); }
+            catch(e){ /* month may not exist yet */ }
+          }
+
+          function findGroupCats(budgetMonth) {
+            const g = budgetMonth?.categoryGroups?.find(cg => cg.id === group.id);
+            return g?.categories || [];
+          }
+
+          const targetCats = findGroupCats(targetBudget);
+          const categories = [];
+          let totalNeeded = 0, totalFunded = 0;
+
+          for (const cat of targetCats) {
+            if (cat.hidden) continue;
+            const funded = (cat.budgeted || 0) / 100;
+
+            // Needed: goal if set, else max budgeted across reference months
+            let needed = 0;
+            let source = 'none';
+            if (cat.goal !== null && cat.goal !== undefined && cat.goal > 0) {
+              needed = cat.goal / 100;
+              source = 'goal';
+            } else {
+              let maxRef = 0;
+              for (const rb of refBudgets) {
+                const rc = findGroupCats(rb).find(c => c.id === cat.id);
+                if (rc && (rc.budgeted || 0) > maxRef) maxRef = rc.budgeted || 0;
+              }
+              needed = maxRef / 100;
+              source = maxRef > 0 ? 'reference' : 'none';
+            }
+
+            const remaining = Math.max(0, needed - funded);
+            totalNeeded += needed;
+            totalFunded += Math.min(funded, needed);
+            categories.push({
+              name: cat.name,
+              needed:    Math.round(needed*100)/100,
+              funded:    Math.round(funded*100)/100,
+              remaining: Math.round(remaining*100)/100,
+              source
+            });
+            const flag = remaining < 0.01 ? '✓' : '○';
+            console.log(`  ${flag}  ${cat.name.padEnd(30)} needed ${fmtMoney(needed).padStart(12)}  funded ${fmtMoney(funded).padStart(12)}  remaining ${fmtMoney(remaining).padStart(12)}  [${source}]`);
+          }
+
+          const totalRemaining = Math.max(0, totalNeeded - totalFunded);
+          console.log(`\n  TOTAL — needed ${fmtMoney(totalNeeded)}, funded ${fmtMoney(totalFunded)}, remaining ${fmtMoney(totalRemaining)}`);
+
+          mortgageData.fundingData.breakdown = {
+            group: group.name,
+            targetMonth,
+            categories,
+            totalNeeded:    Math.round(totalNeeded*100)/100,
+            totalFunded:    Math.round(totalFunded*100)/100,
+            totalRemaining: Math.round(totalRemaining*100)/100,
+            syncedAt: localNow + ' (' + TZ + ')'
+          };
+
+          await postToMortgageTracker({
+            settings:     mortgageData.settings,
+            log,
+            reconcile:    mortgageData.reconcile || [],
+            propValueLog: mortgageData.propValueLog || [],
+            fundingData:  mortgageData.fundingData
+          });
+          console.log('✓ Funding analysis synced');
         }
         await actualAPI.shutdown();
       } catch(e) {
-        console.warn('\n⚠  Funding group sync failed:', e.message);
+        console.warn('\n⚠  Funding analysis failed:', e.message);
         try { await actualAPI.shutdown(); } catch(_) {}
       }
     }

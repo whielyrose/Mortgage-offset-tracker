@@ -289,34 +289,23 @@ async function main() {
         function occurrencesInMonth(schedule, ymStr){
           const [yr, mo] = ymStr.split('-').map(Number);
           const monthStart = new Date(yr, mo - 1, 1);
-          const monthEnd   = new Date(yr, mo, 0); // last day of month
+          const monthEnd   = new Date(yr, mo, 0);
           const dateCfg = schedule._date || schedule.date;
           if (!dateCfg) return 0;
-
-          // Single (non-recurring) date
           if (typeof dateCfg === 'string') {
             const d = new Date(dateCfg);
             return (d >= monthStart && d <= monthEnd) ? 1 : 0;
           }
-
           const freq     = dateCfg.frequency || 'monthly';
           const interval = dateCfg.interval || 1;
           const startStr = dateCfg.start || dateCfg.startDate;
           if (!startStr) return 0;
           let cursor = new Date(startStr);
-
-          // Walk backwards isn't needed; step forward from start until past monthEnd.
-          // Cap iterations to avoid any infinite loop.
-          let count = 0, iter = 0;
-          // Fast-forward cursor close to monthStart for far-past start dates
-          // (only for daily/weekly to keep it cheap)
-          while (cursor < monthStart && iter < 5000) {
-            cursor = stepDate(cursor, freq, interval);
-            iter++;
-          }
-          iter = 0;
+          let iter = 0;
+          while (cursor < monthStart && iter < 5000) { cursor = stepDate(cursor, freq, interval); iter++; }
+          let count = 0; iter = 0;
           while (cursor <= monthEnd && iter < 400) {
-            if (cursor >= monthStart && cursor <= monthEnd) count++;
+            if (cursor >= monthStart) count++;
             cursor = stepDate(cursor, freq, interval);
             iter++;
           }
@@ -333,7 +322,22 @@ async function main() {
           return n;
         }
 
-        // Evaluate one category's template(s) → needed dollars for the target month
+        // How many months between occurrences of this schedule (its cycle length)
+        function cycleMonths(schedule){
+          const dateCfg = schedule._date || schedule.date;
+          if (!dateCfg || typeof dateCfg === 'string') return 1;
+          const freq     = dateCfg.frequency || 'monthly';
+          const interval = dateCfg.interval || 1;
+          if (freq === 'daily')   return (interval) / 30;
+          if (freq === 'weekly')  return (interval * 7) / 30;   // fortnightly ≈ 0.47
+          if (freq === 'monthly') return interval;
+          if (freq === 'yearly')  return interval * 12;
+          return interval;
+        }
+
+        // Evaluate one category's template(s) → needed dollars for the target month.
+        // Respects the 'full' flag: full=true budgets the whole amount in the due
+        // month; otherwise the cost is spread evenly across the schedule's cycle.
         function evalNeeded(catId){
           const raw = goalDefs[catId];
           if (!raw) return { needed: 0, source: 'none' };
@@ -341,22 +345,29 @@ async function main() {
           try { defs = JSON.parse(raw); } catch(e){ return { needed: 0, source: 'none' }; }
           if (!Array.isArray(defs) || !defs.length) return { needed: 0, source: 'none' };
 
-          let total = 0;
-          let sawSomething = false;
+          let total = 0, sawSomething = false;
           for (const def of defs) {
             if (def.type === 'simple' && def.monthly != null) {
-              total += Number(def.monthly);          // dollars
+              total += Number(def.monthly);
               sawSomething = true;
             } else if (def.type === 'schedule' && def.name) {
               const sch = schedulesByName[def.name.toLowerCase()];
               if (sch) {
-                const amtCents = Math.abs(sch._amount != null ? sch._amount : (sch.amount || 0));
-                const occ = occurrencesInMonth(sch, targetMonth);
-                total += (amtCents / 100) * occ;
+                const amt = Math.abs(sch._amount != null ? sch._amount : (sch.amount || 0)) / 100;
+                const cyc = cycleMonths(sch);
+                if (def.full === true) {
+                  // Budget the full amount only in the month it falls due
+                  total += amt * occurrencesInMonth(sch, targetMonth);
+                } else if (cyc <= 1.0001) {
+                  // Sub-monthly / monthly: the payments that actually land this month
+                  total += amt * occurrencesInMonth(sch, targetMonth);
+                } else {
+                  // Multi-month cycle (quarterly, yearly): spread evenly per month
+                  total += amt / cyc;
+                }
                 sawSomething = true;
               }
             } else if (def.type === 'by' && def.amount != null) {
-              // "save X by date" — approximate as monthly share isn't trivial; count full amount in target month if due
               total += Number(def.amount);
               sawSomething = true;
             } else if (def.monthly != null) {
@@ -371,6 +382,7 @@ async function main() {
         }
 
         const categories = [];
+
 
         let totalNeeded = 0, totalFunded = 0;
 

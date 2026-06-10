@@ -262,6 +262,9 @@ async function main() {
           console.log(`  ⚠  No categories found in group for ${targetMonth}`);
         }
 
+        // DEBUG: dump raw category objects to see available fields
+        console.log('  DEBUG raw categories:', JSON.stringify(targetCats, null, 2));
+
         const categories = [];
         let totalNeeded = 0, totalFunded = 0;
 

@@ -262,16 +262,31 @@ async function main() {
           console.log(`  ⚠  No categories found in group for ${targetMonth}`);
         }
 
-        // DEBUG: dump goal_def for all cats + the schedules table structure
+        // Trigger Actual's goal evaluation, then re-read the budget month
+        let goalLookup = {};
+        try {
+          await actualAPI.getBudgets();
+        } catch(e){ console.log('  DEBUG getBudgets:', e.message); }
+
+        // Try reading goal + long_goal columns directly via query for the target month
         try {
           const runQuery = actualAPI.runQuery || actualAPI.aqlQuery;
           if (actualAPI.q && runQuery) {
-            const gd = await runQuery(actualAPI.q('categories').filter({ 'group.id': group.id }).select(['id','name','goal_def']));
-            console.log('  DEBUG all goal_defs:', JSON.stringify(gd?.data, null, 2));
-            const sch = await runQuery(actualAPI.q('schedules').select('*'));
-            console.log('  DEBUG schedules:', JSON.stringify(sch?.data, null, 2));
+            const zm = await runQuery(actualAPI.q('zero_budget_months').filter({ id: targetMonth }).select('*'));
+            console.log('  DEBUG zero_budget_months:', JSON.stringify(zm?.data, null, 2));
+            const zb = await runQuery(actualAPI.q('zero_budgets').filter({ month: Number(targetMonth.replace('-','')) }).select('*'));
+            console.log('  DEBUG zero_budgets:', JSON.stringify(zb?.data?.slice(0,6), null, 2));
+            const rb = await runQuery(actualAPI.q('reflect_budgets').filter({ month: Number(targetMonth.replace('-','')) }).select('*'));
+            console.log('  DEBUG reflect_budgets:', JSON.stringify(rb?.data?.slice(0,6), null, 2));
           }
-        } catch(e){ console.log('  DEBUG schedule probe failed:', e.message); }
+        } catch(e){ console.log('  DEBUG budget table probe:', e.message); }
+
+        // DEBUG: re-fetch budget month after getBudgets and dump first category
+        try {
+          const tb2 = await actualAPI.getBudgetMonth(targetMonth);
+          const tg2 = tb2?.categoryGroups?.find(cg => cg.id === group.id);
+          console.log('  DEBUG budget cat after getBudgets:', JSON.stringify(tg2?.categories?.slice(0,2), null, 2));
+        } catch(e){ console.log('  DEBUG refetch:', e.message); }
 
         const categories = [];
         let totalNeeded = 0, totalFunded = 0;

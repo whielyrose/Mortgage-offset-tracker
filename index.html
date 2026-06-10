@@ -477,8 +477,18 @@ html,body{min-height:100%;background:var(--bg);color:var(--text);font-family:-ap
       </div>
       <div class="field">
         <label>Target month</label>
-        <input type="month" id="fund-target-month"
-          oninput="saveFundingSetting();renderFunding()">
+        <div style="display:flex;gap:8px">
+          <select id="fund-target-month-sel" onchange="saveFundingSetting();renderFunding()" style="flex:2">
+            <option value="">Month…</option>
+            <option value="01">January</option><option value="02">February</option>
+            <option value="03">March</option><option value="04">April</option>
+            <option value="05">May</option><option value="06">June</option>
+            <option value="07">July</option><option value="08">August</option>
+            <option value="09">September</option><option value="10">October</option>
+            <option value="11">November</option><option value="12">December</option>
+          </select>
+          <select id="fund-target-year-sel" onchange="saveFundingSetting();renderFunding()" style="flex:1"></select>
+        </div>
         <div class="hint">The future month you're currently funding.</div>
       </div>
     </div>
@@ -2781,20 +2791,43 @@ function exportCSV(type){
 
 function renderFundingPage(){
   const el = id => document.getElementById(id);
-  if(el('fund-group'))        el('fund-group').value        = fundingData.group       || '';
-  if(el('fund-target-month')) el('fund-target-month').value = fundingData.targetMonth || '';
+  if(el('fund-group')) el('fund-group').value = fundingData.group || '';
+
+  // Populate year dropdown: current year to +4
+  const yearSel = el('fund-target-year-sel');
+  if(yearSel && !yearSel.options.length){
+    const curYear = new Date().getFullYear();
+    for(let y=curYear; y<=curYear+4; y++){
+      const opt = document.createElement('option');
+      opt.value = y; opt.textContent = y;
+      yearSel.appendChild(opt);
+    }
+  }
+
+  // Restore saved target month into the dropdowns
+  if(fundingData.targetMonth && /^\d{4}-\d{2}$/.test(fundingData.targetMonth)){
+    const [yr, mo] = fundingData.targetMonth.split('-');
+    if(el('fund-target-month-sel')) el('fund-target-month-sel').value = mo;
+    if(yearSel) yearSel.value = yr;
+  }
   renderFunding();
+}
+
+function getFundTargetMonth(){
+  const mo = document.getElementById('fund-target-month-sel')?.value || '';
+  const yr = document.getElementById('fund-target-year-sel')?.value || '';
+  return (mo && yr) ? `${yr}-${mo}` : '';
 }
 
 function saveFundingSetting(){
   fundingData.group       = document.getElementById('fund-group')?.value || '';
-  fundingData.targetMonth = document.getElementById('fund-target-month')?.value || '';
+  fundingData.targetMonth = getFundTargetMonth();
   API.save();
 }
 
 function renderFunding(){
   const group   = document.getElementById('fund-group')?.value || '';
-  const month   = document.getElementById('fund-target-month')?.value || '';
+  const month   = getFundTargetMonth();
   const results = document.getElementById('fund-results');
   const waiting = document.getElementById('fund-waiting');
   if(!results || !waiting) return;

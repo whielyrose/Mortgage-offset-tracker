@@ -493,8 +493,9 @@ html,body{min-height:100%;background:var(--bg);color:var(--text);font-family:-ap
       </div>
     </div>
     <p style="font-size:11px;color:var(--muted)">
-      How "needed" is calculated per category: its goal/template amount if one is set in Actual Budget,
-      otherwise the highest amount budgeted in the fully-funded months before the target.
+      "Needed" per category is read directly from the goal Actual Budget computes for the target month
+      from your schedules and templates — the same figure shown when you hover the balance column in Actual.
+      Categories with no goal or schedule are treated as needing $0.
     </p>
   </div>
 
@@ -2929,7 +2930,7 @@ function renderFunding(){
             : partial
               ? '<span style="color:#EF9F27;font-weight:500">Partial</span>'
               : '<span style="color:var(--red);font-weight:500">Unfunded</span>';
-          const src = c.source==='goal' ? 'Goal' : c.source==='reference' ? 'Prior months' : '—';
+          const src = c.source==='goal' ? 'Goal/Schedule' : '<span style="color:var(--red)">No goal set</span>';
           return '<tr>'
             +'<td>'+c.name+'</td>'
             +'<td style="text-align:right">'+fmt(c.needed)+'</td>'

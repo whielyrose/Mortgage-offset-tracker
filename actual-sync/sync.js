@@ -335,6 +335,9 @@ async function main() {
     console.log('✓ Mortgage tracker updated successfully');
 
     // ── Funding analysis: per-category needed vs funded for target month ────
+    // "Needed" comes from each category's goal for that month — Actual computes
+    // this from your schedules and templates, so it's month-accurate (e.g. it
+    // knows whether October has 2 or 3 fortnightly mortgage payments).
     if (mortgageData.fundingData?.group && mortgageData.fundingData?.targetMonth) {
       const groupName   = mortgageData.fundingData.group;
       const targetMonth = mortgageData.fundingData.targetMonth; // YYYY-MM
@@ -352,27 +355,10 @@ async function main() {
         } else {
           console.log(`\n💰 Analysing funding for "${group.name}" — target ${targetMonth}`);
 
-          // Reference months: the 3 months before the target (your already-funded months)
-          const [tYr, tMo] = targetMonth.split('-').map(Number);
-          const refMonths = [];
-          for (let i = 1; i <= 3; i++) {
-            const d = new Date(tYr, tMo - 1 - i, 1);
-            refMonths.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);
-          }
-
           const targetBudget = await actualAPI.getBudgetMonth(targetMonth);
-          const refBudgets = [];
-          for (const m of refMonths) {
-            try { refBudgets.push(await actualAPI.getBudgetMonth(m)); }
-            catch(e){ /* month may not exist yet */ }
-          }
+          const targetGroup  = targetBudget?.categoryGroups?.find(cg => cg.id === group.id);
+          const targetCats   = targetGroup?.categories || [];
 
-          function findGroupCats(budgetMonth) {
-            const g = budgetMonth?.categoryGroups?.find(cg => cg.id === group.id);
-            return g?.categories || [];
-          }
-
-          const targetCats = findGroupCats(targetBudget);
           const categories = [];
           let totalNeeded = 0, totalFunded = 0;
 
@@ -380,25 +366,17 @@ async function main() {
             if (cat.hidden) continue;
             const funded = (cat.budgeted || 0) / 100;
 
-            // Needed: goal if set, else max budgeted across reference months
-            let needed = 0;
-            let source = 'none';
-            if (cat.goal !== null && cat.goal !== undefined && cat.goal > 0) {
-              needed = cat.goal / 100;
-              source = 'goal';
-            } else {
-              let maxRef = 0;
-              for (const rb of refBudgets) {
-                const rc = findGroupCats(rb).find(c => c.id === cat.id);
-                if (rc && (rc.budgeted || 0) > maxRef) maxRef = rc.budgeted || 0;
-              }
-              needed = maxRef / 100;
-              source = maxRef > 0 ? 'reference' : 'none';
-            }
+            // Needed: the goal Actual computed for this category for this month.
+            // This is what the balance-column hover shows in the Actual UI.
+            const goalCents = (cat.goal !== null && cat.goal !== undefined) ? cat.goal
+                            : (cat.longGoal !== null && cat.longGoal !== undefined) ? cat.longGoal
+                            : null;
+            const needed = goalCents !== null ? goalCents / 100 : 0;
+            const source = goalCents !== null ? 'goal' : 'none';
 
             const remaining = Math.max(0, needed - funded);
             totalNeeded += needed;
-            totalFunded += Math.min(funded, needed);
+            totalFunded += Math.min(funded, needed); // overfunded counts only up to needed
             categories.push({
               name: cat.name,
               needed:    Math.round(needed*100)/100,
@@ -406,8 +384,13 @@ async function main() {
               remaining: Math.round(remaining*100)/100,
               source
             });
-            const flag = remaining < 0.01 ? '✓' : '○';
+            const flag = needed === 0 ? '·' : remaining < 0.01 ? '✓' : '○';
             console.log(`  ${flag}  ${cat.name.padEnd(30)} needed ${fmtMoney(needed).padStart(12)}  funded ${fmtMoney(funded).padStart(12)}  remaining ${fmtMoney(remaining).padStart(12)}  [${source}]`);
+          }
+
+          const noGoalCount = categories.filter(c => c.source === 'none').length;
+          if (noGoalCount > 0) {
+            console.log(`\n  ⚠  ${noGoalCount} categor${noGoalCount===1?'y has':'ies have'} no goal/schedule set in Actual — needed treated as $0`);
           }
 
           const totalRemaining = Math.max(0, totalNeeded - totalFunded);

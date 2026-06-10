@@ -262,6 +262,23 @@ async function main() {
           console.log(`  ⚠  No categories found in group for ${targetMonth}`);
         }
 
+        // DEBUG: list goal/template-related API functions + dump category notes
+        console.log('  DEBUG api functions:', Object.keys(actualAPI).filter(k=>/goal|template|note|categor|budget/i.test(k)).join(', '));
+        try {
+          const allCats = await actualAPI.getCategories();
+          const billsCats = allCats.filter(c => c.group_id === group.id);
+          console.log('  DEBUG getCategories sample:', JSON.stringify(billsCats.slice(0,3), null, 2));
+        } catch(e){ console.log('  DEBUG getCategories failed:', e.message); }
+        try {
+          const runQuery = actualAPI.runQuery || actualAPI.aqlQuery;
+          if (actualAPI.q && runQuery) {
+            const { data } = await runQuery(actualAPI.q('categories').filter({ 'group.id': group.id }).select(['id','name','goal_def']));
+            console.log('  DEBUG goal_def via query:', JSON.stringify(data?.slice(0,5), null, 2));
+          } else {
+            console.log('  DEBUG no q/runQuery available');
+          }
+        } catch(e){ console.log('  DEBUG goal_def query failed:', e.message); }
+
         // DEBUG: dump raw category objects to see available fields
         console.log('  DEBUG raw categories:', JSON.stringify(targetCats, null, 2));
 

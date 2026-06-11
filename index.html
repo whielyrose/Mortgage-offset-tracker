@@ -444,6 +444,11 @@ html,body{min-height:100%;background:var(--bg);color:var(--text);font-family:-ap
       </div>
     </div>
     <div class="chart-wrap" style="height:160px"><canvas id="dailyChart" role="img" aria-label="Daily interest accrual">Daily interest.</canvas></div>
+    <div id="accrued-banner" style="display:none;margin-top:12px;padding:12px 14px;background:var(--surface2);border-radius:var(--radius);display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">
+      <span id="accrued-label" style="font-size:12px;color:var(--muted)">Interest accrued so far this month</span>
+      <span id="accrued-value" style="font-size:24px;font-weight:600;color:var(--text)">$0.00</span>
+      <span id="accrued-sub" style="font-size:11px;color:var(--muted)"></span>
+    </div>
     <div id="month-summary" style="margin-top:10px;font-size:12px;color:var(--muted)"></div>
   </div>
   <div class="card" id="equity-chart-card" style="display:none">
@@ -1133,8 +1138,10 @@ function addLogEntry(){
     const rate=parseFloat(document.getElementById('lf-rate')?.value);
     if(isNaN(rate)||rate<=0){toast('Please enter a rate');return;}
     entry={...entry,rate};
-    settings.rate=rate; saveSetting('rate',rate);
-    document.getElementById('s-rate').value=rate;
+    // Note: a dated rate-change entry layers on top of the base rate via
+    // getRateForDate(). We deliberately do NOT overwrite settings.rate here —
+    // doing so would retroactively apply the new rate to days before the
+    // change date (which fall back to settings.rate).
   } else if(currentLogType==='extra'){
     const amount=parseFloat(document.getElementById('lf-amount')?.value);
     if(isNaN(amount)||amount<=0){toast('Please enter an amount');return;}
@@ -1518,6 +1525,26 @@ function renderDailyChartForMonth(monthStr, effBalOverride, rateOverride){
   const total = data.reduce((a,b)=>a+b,0);
   const sofar = isCurrentMonth ? data.slice(0,now.getDate()).reduce((a,b)=>a+b,0) : total;
   const rangeCents = Math.round((dataMax-dataMin)*100);
+
+  // Prominent "accrued so far this month" stat banner
+  const banner = document.getElementById('accrued-banner');
+  if(banner){
+    const bv  = document.getElementById('accrued-value');
+    const bl  = document.getElementById('accrued-label');
+    const bs  = document.getElementById('accrued-sub');
+    const monthLabel = new Date(yearNum, monthNum1-1, 1).toLocaleDateString('en-AU',{month:'long',year:'numeric'});
+    if(isPastMonth){
+      if(bl) bl.textContent = 'Total interest charged — '+monthLabel;
+      if(bv) bv.textContent = fmt(total);
+      if(bs) bs.textContent = '';
+    } else {
+      if(bl) bl.textContent = 'Interest accrued so far — '+monthLabel;
+      if(bv) bv.textContent = fmt(sofar);
+      if(bs) bs.textContent = `through day ${now.getDate()} · projected month total ${fmt(total)}`;
+    }
+    banner.style.display = 'flex';
+  }
+
   const el = document.getElementById('month-summary');
   if(el) el.innerHTML =
     (isPastMonth
@@ -3149,6 +3176,11 @@ async function init(){
         </div>
       </div>
       <div class="chart-wrap" style="height:160px"><canvas id="dailyChart" role="img" aria-label="Daily interest accrual">Daily interest.</canvas></div>
+      <div id="accrued-banner" style="display:none;margin-top:12px;padding:12px 14px;background:var(--surface2);border-radius:var(--radius);display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">
+        <span id="accrued-label" style="font-size:12px;color:var(--muted)">Interest accrued so far this month</span>
+        <span id="accrued-value" style="font-size:24px;font-weight:600;color:var(--text)">$0.00</span>
+        <span id="accrued-sub" style="font-size:11px;color:var(--muted)"></span>
+      </div>
       <div id="month-summary" style="margin-top:10px;font-size:12px;color:var(--muted)"></div>
     </div>`;
   loadSettingsForm();

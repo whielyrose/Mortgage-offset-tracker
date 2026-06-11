@@ -274,6 +274,9 @@ async function main() {
         try {
           const gd = await runQuery(actualAPI.q('categories').filter({ 'group.id': group.id }).select(['id','name','goal_def']));
           (gd?.data || []).forEach(c => { goalDefs[c.id] = c.goal_def; });
+          // DEBUG: dump every category's goal_def so we can see all template types
+          console.log('  DEBUG goal_defs:');
+          (gd?.data || []).forEach(c => console.log(`    ${c.name}: ${c.goal_def}`));
         } catch(e){ console.warn('  goal_def read failed:', e.message); }
 
         // Pull all schedules (read-only) and index by lowercased name
@@ -423,7 +426,8 @@ async function main() {
 
         for (const cat of targetCats) {
           if (cat.hidden) continue;
-          const funded = (cat.budgeted || 0) / 100;
+          const funded  = (cat.budgeted || 0) / 100;
+          const balance = (cat.balance  || 0) / 100;
 
           // Read-only: compute needed from the category's template(s)
           const { needed, source } = evalNeeded(cat);
@@ -436,10 +440,11 @@ async function main() {
             needed:    Math.round(needed*100)/100,
             funded:    Math.round(funded*100)/100,
             remaining: Math.round(remaining*100)/100,
+            balance:   Math.round(balance*100)/100,
             source
           });
           const flag = needed === 0 ? '·' : remaining < 0.01 ? '✓' : '○';
-          console.log(`  ${flag}  ${cat.name.padEnd(30)} needed ${fmtMoney(needed).padStart(12)}  funded ${fmtMoney(funded).padStart(12)}  remaining ${fmtMoney(remaining).padStart(12)}  [${source}]`);
+          console.log(`  ${flag}  ${cat.name.padEnd(30)} needed ${fmtMoney(needed).padStart(11)}  funded ${fmtMoney(funded).padStart(11)}  remaining ${fmtMoney(remaining).padStart(11)}  balance ${fmtMoney(balance).padStart(11)}  [${source}]`);
         }
 
         const noGoalCount = categories.filter(c => c.source === 'none').length;

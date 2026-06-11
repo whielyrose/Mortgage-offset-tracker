@@ -2920,7 +2920,7 @@ function renderFunding(){
   const tableEl = document.getElementById('fund-category-table');
   if(tableEl){
     tableEl.innerHTML = '<div class="tbl-wrap"><table class="tbl"><thead><tr>'
-      +'<th>Category</th><th style="text-align:right">Needed</th><th style="text-align:right">Funded</th><th style="text-align:right">Remaining</th><th>Status</th><th>Source</th>'
+      +'<th>Category</th><th style="text-align:right">Balance</th><th style="text-align:right">Needed</th><th style="text-align:right">Funded</th><th style="text-align:right">Remaining</th><th>Status</th><th>Source</th>'
       +'</tr></thead><tbody>'
       + cats.map(c=>{
           const done = c.remaining < 0.01;
@@ -2933,6 +2933,7 @@ function renderFunding(){
           const src = c.source==='template' ? 'Template/Schedule' : '<span style="color:var(--red)">No template</span>';
           return '<tr>'
             +'<td>'+c.name+'</td>'
+            +'<td style="text-align:right;color:var(--muted)">'+(c.balance!=null?fmt(c.balance):'—')+'</td>'
             +'<td style="text-align:right">'+fmt(c.needed)+'</td>'
             +'<td style="text-align:right">'+fmt(c.funded)+'</td>'
             +'<td style="text-align:right;font-weight:500;color:'+(done?'var(--green-mid)':'var(--text)')+'">'+(done?'—':fmt(c.remaining))+'</td>'
@@ -2942,6 +2943,7 @@ function renderFunding(){
         }).join('')
       +'<tr style="font-weight:600;border-top:2px solid var(--border2)">'
       +'<td>Total</td>'
+      +'<td></td>'
       +'<td style="text-align:right">'+fmt(totalNeeded)+'</td>'
       +'<td style="text-align:right">'+fmt(totalFunded)+'</td>'
       +'<td style="text-align:right;color:'+(complete?'var(--green-mid)':'var(--red)')+'">'+(complete?'$0.00':fmt(totalRemaining))+'</td>'

@@ -478,6 +478,15 @@ async function main() {
           console.log(`    ${cat.name}: budgeted=${cat.budgeted} balance=${cat.balance} carryover=${cat.carryover}`);
         }
 
+        // DEBUG: mortgage & anzcap schedule detail + computed occurrences
+        console.log(`\n  DEBUG schedule occurrence check for ${targetMonth}:`);
+        for (const nm of ['mortgage','anzcap']) {
+          const s = schedulesByName[nm];
+          if (!s) { console.log(`    ${nm}: not found`); continue; }
+          const dc = s._date || s.date;
+          console.log(`    ${nm}: amount=${s._amount!=null?s._amount:s.amount} next_date=${s.next_date} dateCfg=${JSON.stringify(dc)} occurrencesInMonth=${occurrencesInMonth(s, targetMonth)}`);
+        }
+
         const noGoalCount = categories.filter(c => c.source === 'none').length;
         if (noGoalCount > 0) {
           console.log(`\n  ⚠  ${noGoalCount} categor${noGoalCount===1?'y has':'ies have'} no template/schedule set — needed treated as $0`);

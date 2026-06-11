@@ -334,7 +334,10 @@ async function main() {
           return n;
         }
 
-        // Find the next occurrence date on/after a given month start
+        // Find the next occurrence date on/after a given month start.
+        // Uses the schedule's configured start and steps forward (the original,
+        // verified behaviour for catch-up calculations). Dates are normalized to
+        // local noon to avoid timezone month-boundary slips.
         function nextOccurrenceOnOrAfter(schedule, ymStr){
           const [yr, mo] = ymStr.split('-').map(Number);
           const monthStart = new Date(yr, mo - 1, 1, 12, 0, 0, 0);
@@ -346,14 +349,10 @@ async function main() {
           }
           const freq     = dateCfg.frequency || 'monthly';
           const interval = dateCfg.interval || 1;
-          const anchorStr = schedule.next_date || dateCfg.start || dateCfg.startDate;
-          if (!anchorStr) return null;
-          let cursor = parseLocalNoon(anchorStr);
+          const startStr = dateCfg.start || dateCfg.startDate;
+          if (!startStr) return null;
+          let cursor = parseLocalNoon(startStr);
           let iter = 0;
-          // Walk backward first (anchor may be in the future), then forward, so we
-          // land on the first occurrence on/after the month start.
-          while (cursor >= monthStart && iter < 6000) { cursor = stepDate(cursor, freq, -interval); iter++; }
-          iter = 0;
           while (cursor < monthStart && iter < 6000) { cursor = stepDate(cursor, freq, interval); iter++; }
           return cursor;
         }

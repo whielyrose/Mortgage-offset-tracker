@@ -402,19 +402,38 @@ async function main() {
               if (sch) {
                 const amt = Math.abs(sch._amount != null ? sch._amount : (sch.amount || 0)) / 100;
                 const cyc = cycleMonths(sch);
+                let adj = 1;
+                if (def.adjustment && def.adjustmentType === 'percent') adj = 1 + Number(def.adjustment)/100;
                 if (def.full === true) {
-                  total += amt * occurrencesInMonth(sch, targetMonth);
+                  total += amt * adj * occurrencesInMonth(sch, targetMonth);
                 } else if (cyc <= 1.0001) {
                   // Sub-monthly / monthly bills land in full each period
-                  total += amt * occurrencesInMonth(sch, targetMonth);
+                  total += amt * adj * occurrencesInMonth(sch, targetMonth);
                 } else {
-                  // Multi-month lump sum (yearly/quarterly): Actual budgets the
-                  // REMAINING amount (target minus what's already saved) spread
-                  // over the months until it's due.
+                  // Recurring multi-month bill (yearly/quarterly). Match what Actual
+                  // wants budgeted THIS month to keep the category on track ("go green"):
+                  //   • If the next payout is still in the future, catch up: spread the
+                  //     amount still needed (target − already-saved) over the months left
+                  //     until it's due.
+                  //   • If the bill is due now or the cycle has just renewed (already
+                  //     fully saved), fall back to the steady contribution amount ÷ cycle.
+                  const steady = (amt * adj) / cyc;
                   const due = nextOccurrenceOnOrAfter(sch, targetMonth);
-                  const months = due ? monthsUntil(targetMonth, due) : cyc;
-                  const remainingToSave = Math.max(0, amt - Math.max(0, carryover));
-                  total += remainingToSave / months;
+                  // months from the target month to the due month (0 = due this month)
+                  let need = steady;
+                  if (due) {
+                    const [tY, tM] = targetMonth.split('-').map(Number);
+                    const monthsToDue = (due.getFullYear() - tY) * 12 + (due.getMonth() - (tM - 1));
+                    if (monthsToDue >= 0) {
+                      const remainingToSave = Math.max(0, amt * adj - Math.max(0, carryover));
+                      const catchUp = remainingToSave / (monthsToDue + 1);
+                      // Use catch-up while saving toward a future/imminent bill; once
+                      // it's covered (catchUp would be ~0), use the steady rate so the
+                      // renewed cycle keeps contributing.
+                      need = catchUp > 0.009 ? catchUp : steady;
+                    }
+                  }
+                  total += need;
                 }
                 sawSomething = true;
               }

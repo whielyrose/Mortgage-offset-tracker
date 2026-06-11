@@ -276,7 +276,11 @@ async function main() {
           (gd?.data || []).forEach(c => { goalDefs[c.id] = c.goal_def; });
           // DEBUG: dump every category's goal_def so we can see all template types
           console.log('  DEBUG goal_defs:');
-          (gd?.data || []).forEach(c => console.log(`    ${c.name}: ${c.goal_def}`));
+          for (const c of (gd?.data || [])) {
+            let note = '';
+            try { note = (await actualAPI.getNote(c.id)) || ''; } catch(e){}
+            console.log(`    ${c.name}: goal_def=${c.goal_def} | note=${JSON.stringify(note)}`);
+          }
         } catch(e){ console.warn('  goal_def read failed:', e.message); }
 
         // Pull all schedules (read-only) and index by lowercased name
@@ -286,6 +290,13 @@ async function main() {
           (allSchedules || []).forEach(s => {
             if (s.name) schedulesByName[s.name.toLowerCase()] = s;
           });
+          // DEBUG: dump the schedules that drive the $0 categories
+          console.log('  DEBUG schedules (Strava/THANZ/ANZCAP):');
+          for (const nm of ['strava','thanz','anzcap']) {
+            const s = schedulesByName[nm];
+            if (s) console.log(`    ${nm}: amount=${s._amount}, date=${JSON.stringify(s._date||s.date)}, next=${s.next_date}`);
+            else   console.log(`    ${nm}: NOT FOUND by name`);
+          }
         } catch(e){ console.warn('  schedules read failed:', e.message); }
 
         // Count how many times a schedule occurs within a given YYYY-MM

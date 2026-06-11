@@ -290,13 +290,16 @@ async function main() {
           (allSchedules || []).forEach(s => {
             if (s.name) schedulesByName[s.name.toLowerCase()] = s;
           });
-          // DEBUG: dump the schedules that drive the $0 categories
-          console.log('  DEBUG schedules (Strava/THANZ/ANZCAP):');
-          for (const nm of ['strava','thanz','anzcap']) {
+          // DEBUG: dump full schedule objects + query schedules table for amounts
+          console.log('  DEBUG full schedule objects (Strava/THANZ/ANZCAP):');
+          for (const nm of ['strava','thanz','anzcap','rates','water']) {
             const s = schedulesByName[nm];
-            if (s) console.log(`    ${nm}: amount=${s._amount}, date=${JSON.stringify(s._date||s.date)}, next=${s.next_date}`);
-            else   console.log(`    ${nm}: NOT FOUND by name`);
+            console.log(`    ${nm}: ${JSON.stringify(s)}`);
           }
+          try {
+            const sq = await runQuery(actualAPI.q('schedules').select('*'));
+            console.log('  DEBUG schedules table (first 3 rows):', JSON.stringify((sq?.data||[]).slice(0,3), null, 2));
+          } catch(e){ console.log('  DEBUG schedules table query failed:', e.message); }
         } catch(e){ console.warn('  schedules read failed:', e.message); }
 
         // Count how many times a schedule occurs within a given YYYY-MM
@@ -415,8 +418,19 @@ async function main() {
                 }
                 sawSomething = true;
               }
-            } else if (def.type === 'by' && def.amount != null) {
-              total += Number(def.amount);
+            } else if (def.type === 'by' && def.amount != null && def.month) {
+              // "Save $amount by YYYY-MM" — spread the remaining amount evenly
+              // across the months from the target month up to the due month.
+              // If annual, the goal repeats yearly: roll the due date forward
+              // until it's on/after the target month.
+              let [dueY, dueM] = def.month.split('-').map(Number);
+              const [tY, tM] = targetMonth.split('-').map(Number);
+              if (def.annual) {
+                while (dueY * 12 + (dueM - 1) < tY * 12 + (tM - 1)) dueY += 1;
+              }
+              const monthsToGo = Math.max(1, (dueY * 12 + (dueM - 1)) - (tY * 12 + (tM - 1)) + 1);
+              const remainingToSave = Math.max(0, Number(def.amount) - Math.max(0, carryover));
+              total += remainingToSave / monthsToGo;
               sawSomething = true;
             } else if (def.monthly != null) {
               total += Number(def.monthly);

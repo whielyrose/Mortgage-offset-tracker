@@ -295,11 +295,19 @@ async function main() {
           }
           const freq     = dateCfg.frequency || 'monthly';
           const interval = dateCfg.interval || 1;
-          const startStr = dateCfg.start || dateCfg.startDate;
-          if (!startStr) return 0;
-          let cursor = new Date(startStr);
+          // Anchor on the schedule's next_date (Actual keeps this accurate to the
+          // real payment cadence). Fall back to the configured start only if there
+          // is no next_date. Stepping from a stale `start` can drift off the true
+          // payment dates and miscount months that contain an extra payment.
+          const anchorStr = schedule.next_date || dateCfg.start || dateCfg.startDate;
+          if (!anchorStr) return 0;
+          let cursor = new Date(anchorStr);
           let iter = 0;
-          while (cursor < monthStart && iter < 5000) { cursor = stepDate(cursor, freq, interval); iter++; }
+          // Walk backwards to at/just-before the month start
+          while (cursor >= monthStart && iter < 6000) { cursor = stepDate(cursor, freq, -interval); iter++; }
+          // Step forward into the month
+          iter = 0;
+          while (cursor < monthStart && iter < 6000) { cursor = stepDate(cursor, freq, interval); iter++; }
           let count = 0; iter = 0;
           while (cursor <= monthEnd && iter < 400) {
             if (cursor >= monthStart) count++;
@@ -469,22 +477,6 @@ async function main() {
           });
           const flag = needed === 0 ? '·' : remaining < 0.01 ? '✓' : '○';
           console.log(`  ${flag}  ${cat.name.padEnd(30)} needed ${fmtMoney(needed).padStart(11)}  funded ${fmtMoney(funded).padStart(11)}  remaining ${fmtMoney(remaining).padStart(11)}  balance ${fmtMoney(balance).padStart(11)}  [${source}]`);
-        }
-
-        // DEBUG: raw cents from Actual for this exact month — compare against Actual UI
-        console.log(`\n  DEBUG raw budgeted/balance for ${targetMonth}:`);
-        for (const cat of targetCats) {
-          if (cat.hidden) continue;
-          console.log(`    ${cat.name}: budgeted=${cat.budgeted} balance=${cat.balance} carryover=${cat.carryover}`);
-        }
-
-        // DEBUG: mortgage & anzcap schedule detail + computed occurrences
-        console.log(`\n  DEBUG schedule occurrence check for ${targetMonth}:`);
-        for (const nm of ['mortgage','anzcap']) {
-          const s = schedulesByName[nm];
-          if (!s) { console.log(`    ${nm}: not found`); continue; }
-          const dc = s._date || s.date;
-          console.log(`    ${nm}: amount=${s._amount!=null?s._amount:s.amount} next_date=${s.next_date} dateCfg=${JSON.stringify(dc)} occurrencesInMonth=${occurrencesInMonth(s, targetMonth)}`);
         }
 
         const noGoalCount = categories.filter(c => c.source === 'none').length;

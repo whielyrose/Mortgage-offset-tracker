@@ -458,7 +458,7 @@ async function main() {
 
           const remaining = Math.max(0, needed - funded);
           totalNeeded += needed;
-          totalFunded += Math.min(funded, needed);
+          totalFunded += funded;   // real dollars budgeted this month (not capped at needed)
           categories.push({
             name: cat.name,
             needed:    Math.round(needed*100)/100,
@@ -469,6 +469,13 @@ async function main() {
           });
           const flag = needed === 0 ? '·' : remaining < 0.01 ? '✓' : '○';
           console.log(`  ${flag}  ${cat.name.padEnd(30)} needed ${fmtMoney(needed).padStart(11)}  funded ${fmtMoney(funded).padStart(11)}  remaining ${fmtMoney(remaining).padStart(11)}  balance ${fmtMoney(balance).padStart(11)}  [${source}]`);
+        }
+
+        // DEBUG: raw cents from Actual for this exact month — compare against Actual UI
+        console.log(`\n  DEBUG raw budgeted/balance for ${targetMonth}:`);
+        for (const cat of targetCats) {
+          if (cat.hidden) continue;
+          console.log(`    ${cat.name}: budgeted=${cat.budgeted} balance=${cat.balance} carryover=${cat.carryover}`);
         }
 
         const noGoalCount = categories.filter(c => c.source === 'none').length;

@@ -27,8 +27,7 @@ function validateConfig() {
   const required = { ACTUAL_SERVER_URL, ACTUAL_SERVER_PASSWORD, ACTUAL_SYNC_ID, MORTGAGE_API_URL };
   const missing = Object.entries(required).filter(([, v]) => !v).map(([k]) => k);
   if (missing.length) {
-    console.error(`❌ Missing required env vars: ${missing.join(', ')}`);
-    process.exit(1);
+    throw new Error(`Missing required env vars: ${missing.join(', ')}`);
   }
 }
 
@@ -201,8 +200,7 @@ async function main() {
     mortgageData = await loadCurrentMortgageData();
     console.log('✓ Mortgage tracker data loaded');
   } catch (e) {
-    console.error(`❌ Could not reach mortgage tracker API: ${e.message}`);
-    process.exit(1);
+    throw new Error(`Could not reach mortgage tracker API: ${e.message}`);
   }
 
   // ── 2. Connect to Actual Budget (single connection for everything) ────────
@@ -219,9 +217,8 @@ async function main() {
   const onBudget = accounts.filter(a => !a.offbudget && !a.closed);
 
   if (!onBudget.length) {
-    console.error('❌ No on-budget accounts found.');
     await actualAPI.shutdown();
-    process.exit(1);
+    throw new Error('No on-budget accounts found.');
   }
 
   console.log(`\n  Found ${onBudget.length} on-budget account(s):\n`);
@@ -274,13 +271,6 @@ async function main() {
         try {
           const gd = await runQuery(actualAPI.q('categories').filter({ 'group.id': group.id }).select(['id','name','goal_def']));
           (gd?.data || []).forEach(c => { goalDefs[c.id] = c.goal_def; });
-          // DEBUG: dump every category's goal_def so we can see all template types
-          console.log('  DEBUG goal_defs:');
-          for (const c of (gd?.data || [])) {
-            let note = '';
-            try { note = (await actualAPI.getNote(c.id)) || ''; } catch(e){}
-            console.log(`    ${c.name}: goal_def=${c.goal_def} | note=${JSON.stringify(note)}`);
-          }
         } catch(e){ console.warn('  goal_def read failed:', e.message); }
 
         // Pull all schedules (read-only) and index by lowercased name
@@ -290,16 +280,6 @@ async function main() {
           (allSchedules || []).forEach(s => {
             if (s.name) schedulesByName[s.name.toLowerCase()] = s;
           });
-          // DEBUG: dump full schedule objects + query schedules table for amounts
-          console.log('  DEBUG full schedule objects (Strava/THANZ/ANZCAP):');
-          for (const nm of ['strava','thanz','anzcap','rates','water']) {
-            const s = schedulesByName[nm];
-            console.log(`    ${nm}: ${JSON.stringify(s)}`);
-          }
-          try {
-            const sq = await runQuery(actualAPI.q('schedules').select('*'));
-            console.log('  DEBUG schedules table (first 3 rows):', JSON.stringify((sq?.data||[]).slice(0,3), null, 2));
-          } catch(e){ console.log('  DEBUG schedules table query failed:', e.message); }
         } catch(e){ console.warn('  schedules read failed:', e.message); }
 
         // Count how many times a schedule occurs within a given YYYY-MM
@@ -626,8 +606,103 @@ async function main() {
   console.log('═══════════════════════════════════════════\n');
 }
 
-main().catch(err => {
-  console.error('\n❌ Sync failed:', err.message);
-  console.error(err.stack);
-  process.exit(1);
+// ── HTTP server + nightly scheduler ─────────────────────────────────────────
+// The container stays alive and runs the sync on demand (POST /run) or on its
+// built-in nightly schedule. A mutex prevents overlapping runs.
+const http = require('http');
+
+const PORT          = Number(process.env.SYNC_PORT || 8090);
+const NIGHTLY_HHMM  = process.env.SYNC_NIGHTLY_TIME || '23:50'; // local TZ HH:MM, '' to disable
+
+let isRunning = false;
+let lastRun   = null;   // { startedAt, finishedAt, ok, error }
+
+async function runSync(trigger) {
+  if (isRunning) {
+    console.log(`\n⏳ Sync already in progress — ignoring ${trigger} trigger`);
+    return { started: false, reason: 'already-running' };
+  }
+  isRunning = true;
+  const startedAt = nowInTZ();
+  console.log(`\n▶  Sync triggered by: ${trigger}`);
+  try {
+    // Clear stale Actual cache each run (entrypoint used to do this)
+    try { fs.rmSync(CACHE_DIR, { recursive: true, force: true }); } catch (_) {}
+    try { fs.mkdirSync(CACHE_DIR, { recursive: true }); } catch (_) {}
+
+    await main();
+    lastRun = { startedAt, finishedAt: nowInTZ(), ok: true, error: null };
+    return { started: true, ok: true };
+  } catch (err) {
+    console.error('\n❌ Sync failed:', err.message);
+    console.error(err.stack);
+    lastRun = { startedAt, finishedAt: nowInTZ(), ok: false, error: err.message };
+    return { started: true, ok: false, error: err.message };
+  } finally {
+    isRunning = false;
+  }
+}
+
+// Simple HTTP API
+const server = http.createServer(async (req, res) => {
+  const url = req.url.split('?')[0];
+  res.setHeader('Content-Type', 'application/json');
+
+  if (req.method === 'POST' && url === '/run') {
+    if (isRunning) {
+      res.writeHead(409);
+      res.end(JSON.stringify({ ok: false, status: 'already-running' }));
+      return;
+    }
+    // Kick off the sync but respond quickly; the browser is refreshed via
+    // the existing /api/notify SSE path when the sync finishes.
+    res.writeHead(202);
+    res.end(JSON.stringify({ ok: true, status: 'started' }));
+    runSync('button');
+    return;
+  }
+
+  if (req.method === 'GET' && url === '/status') {
+    res.writeHead(200);
+    res.end(JSON.stringify({ running: isRunning, lastRun }));
+    return;
+  }
+
+  if (req.method === 'GET' && (url === '/health' || url === '/')) {
+    res.writeHead(200);
+    res.end(JSON.stringify({ ok: true, service: 'actual-sync', running: isRunning }));
+    return;
+  }
+
+  res.writeHead(404);
+  res.end(JSON.stringify({ ok: false, error: 'not found' }));
 });
+
+server.listen(PORT, () => {
+  console.log('═══════════════════════════════════════════');
+  console.log('  actual-sync service started');
+  console.log(`  Listening on :${PORT}`);
+  console.log(`  Nightly run: ${NIGHTLY_HHMM || '(disabled)'} ${TZ}`);
+  console.log('═══════════════════════════════════════════');
+});
+
+// Built-in nightly scheduler — checks every 30s whether we've crossed the
+// configured HH:MM in the local timezone, runs once per day.
+let lastScheduledDate = null;
+if (NIGHTLY_HHMM) {
+  setInterval(() => {
+    const localDate = todayStringInTZ(); // YYYY-MM-DD
+    const hhmm = new Intl.DateTimeFormat('en-GB', {
+      timeZone: TZ, hour: '2-digit', minute: '2-digit', hour12: false
+    }).format(new Date());
+    if (hhmm === NIGHTLY_HHMM && lastScheduledDate !== localDate) {
+      lastScheduledDate = localDate;
+      runSync('nightly-schedule');
+    }
+  }, 30 * 1000);
+}
+
+// Optionally run once on startup if RUN_ON_START=true
+if (process.env.RUN_ON_START === 'true') {
+  runSync('startup');
+}

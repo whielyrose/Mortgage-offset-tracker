@@ -497,13 +497,23 @@ html,body{min-height:100%;background:var(--bg);color:var(--text);font-family:-ap
       from your schedules and templates — the same figure shown when you hover the balance column in Actual.
       Categories with no goal or schedule are treated as needing $0.
     </p>
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:6px">
+      <button class="btn primary" id="fund-sync-btn" onclick="triggerSync()">
+        <span id="fund-sync-btn-label">↻ Sync now</span>
+      </button>
+      <span id="fund-sync-status" style="font-size:12px;color:var(--muted)"></span>
+    </div>
+    <div style="font-size:11px;color:var(--muted);margin-top:8px">
+      Changed the month or edited your budget in Actual? Press <strong>Sync now</strong> to pull the
+      latest figures. The page refreshes automatically when the sync finishes. A nightly sync also runs on its own.
+    </div>
   </div>
 
   <!-- Waiting for sync -->
   <div class="card" id="fund-waiting" style="display:none">
     <div style="font-size:13px;color:var(--muted);padding:6px 0">
       ⏳ Waiting for the next sync to analyse <strong id="fund-waiting-label"></strong>.
-      The nightly sync (or a manual run of the actual-sync container) will populate this page automatically.
+      Press <strong>Sync now</strong> above, or wait for the nightly sync, to populate this page.
     </div>
   </div>
 
@@ -2818,6 +2828,81 @@ function getFundTargetMonth(){
   const mo = document.getElementById('fund-target-month-sel')?.value || '';
   const yr = document.getElementById('fund-target-year-sel')?.value || '';
   return (mo && yr) ? `${yr}-${mo}` : '';
+}
+
+// Trigger the always-on actual-sync service to pull fresh data from Actual Budget.
+// The service runs the sync, posts the result, and notifies open tabs via SSE
+// (the existing /api/events stream) which reloads the data automatically. As a
+// fallback we also poll /sync/status and reload when it finishes.
+let _syncPollTimer = null;
+async function triggerSync(){
+  const btn    = document.getElementById('fund-sync-btn');
+  const label  = document.getElementById('fund-sync-btn-label');
+  const status = document.getElementById('fund-sync-status');
+  if(!btn) return;
+
+  // Save any pending setting first so the sync uses the current group/month
+  if(typeof saveFundingSetting === 'function') saveFundingSetting();
+
+  btn.disabled = true;
+  if(label)  label.innerHTML = '⏳ Syncing…';
+  if(status) status.textContent = 'Connecting to Actual Budget…';
+
+  try{
+    const r = await fetch('/sync/run', { method:'POST' });
+    if(r.status === 409){
+      if(status) status.textContent = 'A sync is already running — waiting for it to finish…';
+    } else if(!r.ok){
+      throw new Error('HTTP '+r.status);
+    }
+    // Poll status until the run completes, then refresh the data.
+    clearInterval(_syncPollTimer);
+    let waited = 0;
+    _syncPollTimer = setInterval(async ()=>{
+      waited += 2;
+      try{
+        const s = await fetch('/sync/status').then(x=>x.json());
+        if(!s.running){
+          clearInterval(_syncPollTimer);
+          const ok = s.lastRun && s.lastRun.ok;
+          if(status) status.textContent = ok
+            ? '✓ Synced ' + (s.lastRun.finishedAt || '') 
+            : '⚠ Sync finished with an error' + (s.lastRun && s.lastRun.error ? ': '+s.lastRun.error : '');
+          if(label) label.innerHTML = '↻ Sync now';
+          btn.disabled = false;
+          // Pull the freshly-synced data into the page
+          if(ok){
+            try{
+              const data = await API.load();
+              if(data){
+                if(data.fundingData) fundingData = {...{group:'',targetMonth:'',breakdown:null}, ...data.fundingData};
+                if(data.settings) settings = data.settings;
+                if(data.log) logEntries = data.log;
+                if(data.reconcile) reconcileEntries = data.reconcile;
+                if(data.propValueLog) propValueLog = data.propValueLog;
+                renderFundingPage();
+                if(typeof recalc === 'function') recalc();
+              }
+            }catch(e){ /* SSE will catch it otherwise */ }
+          }
+        } else if(status){
+          status.textContent = 'Syncing… ('+waited+'s)';
+        }
+      }catch(e){
+        // status endpoint hiccup — keep waiting a bit
+      }
+      if(waited > 180){ // safety stop after 3 min
+        clearInterval(_syncPollTimer);
+        if(label) label.innerHTML = '↻ Sync now';
+        btn.disabled = false;
+        if(status) status.textContent = 'Still working… check again shortly.';
+      }
+    }, 2000);
+  }catch(e){
+    if(status) status.textContent = '⚠ Could not reach the sync service ('+e.message+')';
+    if(label)  label.innerHTML = '↻ Sync now';
+    btn.disabled = false;
+  }
 }
 
 function saveFundingSetting(){

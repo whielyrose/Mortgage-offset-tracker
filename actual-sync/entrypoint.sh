@@ -5,6 +5,6 @@ if [ -f "/usr/share/zoneinfo/$TZ" ]; then
   echo "$TZ" > /etc/timezone
 fi
 
-# Clear stale Actual Budget cache then run sync
-rm -rf /tmp/actual-cache/*
+# Start the always-on sync service. It clears its own Actual cache before each
+# run and listens for POST /run (button) plus its built-in nightly schedule.
 exec node sync.js

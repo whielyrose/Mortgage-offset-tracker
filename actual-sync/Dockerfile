@@ -19,4 +19,8 @@ RUN mkdir -p /tmp/actual-cache
 # Default timezone — override by setting TZ in your compose environment
 ENV TZ=Australia/Brisbane
 
+# Always-on sync service listens here (internal only)
+ENV SYNC_PORT=8090
+EXPOSE 8090
+
 ENTRYPOINT ["sh", "entrypoint.sh"]

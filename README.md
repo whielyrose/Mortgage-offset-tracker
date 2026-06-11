@@ -68,9 +68,11 @@ Open `http://your-server-ip:8765` and enter your mortgage details manually.
 
 ---
 
-#### With Actual Budget sync (nightly auto-update of offset balances)
+#### With Actual Budget sync (auto-update of offset balances + funding)
 
-If you run [Actual Budget](https://actualbudget.org) self-hosted, the `actual-sync` container connects to it nightly at 11:50pm, reads all on-budget account balances, totals them, and posts the result to the mortgage tracker as a dated offset balance log entry. Your offset total updates automatically without any manual entry.
+If you run [Actual Budget](https://actualbudget.org) self-hosted, the `actual-sync` service connects to it, reads all on-budget account balances, totals them, and posts the result to the mortgage tracker as a dated offset balance log entry. It also analyses your chosen budget group for the funding tracker. Your offset total and funding figures update without any manual entry.
+
+The service is **always on**. It runs a sync automatically each night, and you can also trigger one instantly with the **Sync now** button on the Funding page (handy after changing the target month or editing your budget in Actual). When a sync finishes, open browser tabs refresh on their own.
 
 ```yaml
 services:
@@ -83,6 +85,7 @@ services:
       - "8765:80"
     depends_on:
       - api
+      - actual-sync
 
   api:
     image: ghcr.io/whielyrose/mortgage-tracker-api:latest
@@ -94,28 +97,18 @@ services:
   actual-sync:
     image: ghcr.io/whielyrose/mortgage-tracker-actual-sync:latest
     container_name: mortgage-tracker-actual-sync
-    restart: "no"
+    restart: unless-stopped               # always-on: button + nightly schedule
     environment:
-      - TZ=Australia/Brisbane        # change to your timezone
+      - TZ=Australia/Brisbane             # change to your timezone
+      - SYNC_PORT=8090
+      - SYNC_NIGHTLY_TIME=23:50           # local-TZ HH:MM nightly run ("" to disable)
+      # - RUN_ON_START=true               # uncomment to sync once when the container starts
       - ACTUAL_SERVER_URL=https://your-actual-budget-url.com
       - ACTUAL_SERVER_PASSWORD=your-actual-password
       - ACTUAL_SYNC_ID=your-sync-id-from-actual-settings
       - MORTGAGE_API_URL=http://mortgage-tracker-api:8000
     volumes:
       - actual_sync_cache:/tmp/actual-cache
-
-  cron:
-    image: mcuadros/ofelia:latest
-    container_name: mortgage-tracker-cron
-    restart: unless-stopped
-    depends_on:
-      - actual-sync
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    command: daemon --docker
-    labels:
-      ofelia.job-run.actual-sync.schedule: "0 50 23 * * *"
-      ofelia.job-run.actual-sync.container: "mortgage-tracker-actual-sync"
 
 volumes:
   mortgage_data:
@@ -126,11 +119,12 @@ volumes:
 Open Actual Budget → Settings → Show advanced settings → copy the Sync ID.
 
 **Notes:**
-- `actual-sync` has `restart: "no"` — it runs, does its job, then stops. It appearing as "offline" in your container manager is expected and correct.
-- `cron` (Ofelia) stays running permanently and triggers `actual-sync` each night.
+- `actual-sync` is now a small always-on web service. It listens on port 8090 (internal only — nginx proxies the **Sync now** button to it at `/sync/run`) and runs the sync on demand or on its nightly schedule. No Docker socket access is required.
+- The nightly run is built in via `SYNC_NIGHTLY_TIME` (default `23:50` local time). The old Ofelia `cron` container is no longer needed and can be removed.
+- A mutex prevents overlapping runs — pressing the button while a sync is in progress is safe.
 - The sync reads all on-budget, open accounts and sums their balances. It never writes to Actual Budget.
 - The cache is cleared before each run to avoid stale migration state from Actual Budget version updates.
-- **Timezone** — set `TZ` to your local timezone (e.g. `Australia/Sydney`, `Europe/London`, `America/New_York`). This controls both the timestamp in the sync logs and when the 11:50pm cron fires. Full list of valid timezone names: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
+- **Timezone** — set `TZ` to your local timezone (e.g. `Australia/Sydney`, `Europe/London`, `America/New_York`). This controls the timestamps in the sync logs and when the nightly sync fires. Full list of valid timezone names: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
 
 ---
 

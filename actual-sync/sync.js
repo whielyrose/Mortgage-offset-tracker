@@ -283,14 +283,21 @@ async function main() {
         } catch(e){ console.warn('  schedules read failed:', e.message); }
 
         // Count how many times a schedule occurs within a given YYYY-MM
+        // Parse a YYYY-MM-DD (or ISO) string to a LOCAL date at noon, so the
+        // time-of-day can never push an occurrence over a month boundary.
+        function parseLocalNoon(str){
+          const m = String(str).slice(0,10).split('-').map(Number);
+          return new Date(m[0], m[1]-1, m[2], 12, 0, 0, 0);
+        }
+
         function occurrencesInMonth(schedule, ymStr){
           const [yr, mo] = ymStr.split('-').map(Number);
-          const monthStart = new Date(yr, mo - 1, 1);
-          const monthEnd   = new Date(yr, mo, 0);
+          const monthStart = new Date(yr, mo - 1, 1, 12, 0, 0, 0);
+          const monthEnd   = new Date(yr, mo, 0, 12, 0, 0, 0);
           const dateCfg = schedule._date || schedule.date;
           if (!dateCfg) return 0;
           if (typeof dateCfg === 'string') {
-            const d = new Date(dateCfg);
+            const d = parseLocalNoon(dateCfg);
             return (d >= monthStart && d <= monthEnd) ? 1 : 0;
           }
           const freq     = dateCfg.frequency || 'monthly';
@@ -301,7 +308,7 @@ async function main() {
           // payment dates and miscount months that contain an extra payment.
           const anchorStr = schedule.next_date || dateCfg.start || dateCfg.startDate;
           if (!anchorStr) return 0;
-          let cursor = new Date(anchorStr);
+          let cursor = parseLocalNoon(anchorStr);
           let iter = 0;
           // Walk backwards to at/just-before the month start
           while (cursor >= monthStart && iter < 6000) { cursor = stepDate(cursor, freq, -interval); iter++; }
@@ -330,19 +337,23 @@ async function main() {
         // Find the next occurrence date on/after a given month start
         function nextOccurrenceOnOrAfter(schedule, ymStr){
           const [yr, mo] = ymStr.split('-').map(Number);
-          const monthStart = new Date(yr, mo - 1, 1);
+          const monthStart = new Date(yr, mo - 1, 1, 12, 0, 0, 0);
           const dateCfg = schedule._date || schedule.date;
           if (!dateCfg) return null;
           if (typeof dateCfg === 'string') {
-            const d = new Date(dateCfg);
+            const d = parseLocalNoon(dateCfg);
             return d >= monthStart ? d : null;
           }
           const freq     = dateCfg.frequency || 'monthly';
           const interval = dateCfg.interval || 1;
-          const startStr = dateCfg.start || dateCfg.startDate;
-          if (!startStr) return null;
-          let cursor = new Date(startStr);
+          const anchorStr = schedule.next_date || dateCfg.start || dateCfg.startDate;
+          if (!anchorStr) return null;
+          let cursor = parseLocalNoon(anchorStr);
           let iter = 0;
+          // Walk backward first (anchor may be in the future), then forward, so we
+          // land on the first occurrence on/after the month start.
+          while (cursor >= monthStart && iter < 6000) { cursor = stepDate(cursor, freq, -interval); iter++; }
+          iter = 0;
           while (cursor < monthStart && iter < 6000) { cursor = stepDate(cursor, freq, interval); iter++; }
           return cursor;
         }

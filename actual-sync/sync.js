@@ -73,6 +73,56 @@ function fmtMoney(n) {
   return n.toLocaleString('en-AU', { style: 'currency', currency: 'AUD' });
 }
 
+// ── Calendar helpers (module-level, reusable) ───────────────────────────────
+// Parse a YYYY-MM-DD string to a local date at noon (avoids TZ boundary slips).
+function calParseLocalNoon(str){
+  const m = String(str).slice(0,10).split('-').map(Number);
+  return new Date(m[0], m[1]-1, m[2], 12, 0, 0, 0);
+}
+function calStepDate(d, freq, interval){
+  const n = new Date(d);
+  if (freq === 'daily')        n.setDate(n.getDate() + interval);
+  else if (freq === 'weekly')  n.setDate(n.getDate() + 7 * interval);
+  else if (freq === 'monthly') n.setMonth(n.getMonth() + interval);
+  else if (freq === 'yearly')  n.setFullYear(n.getFullYear() + interval);
+  else n.setMonth(n.getMonth() + interval);
+  return n;
+}
+function calYmd(d){
+  const y = d.getFullYear();
+  const m = String(d.getMonth()+1).padStart(2,'0');
+  const day = String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
+// Expand one schedule into individual dated occurrences within [fromDate, toDate].
+function expandSchedule(schedule, fromDate, toDate){
+  const dateCfg = schedule._date || schedule.date;
+  const out = [];
+  if (!dateCfg) return out;
+  // Single fixed date schedule
+  if (typeof dateCfg === 'string') {
+    const d = calParseLocalNoon(dateCfg);
+    if (d >= fromDate && d <= toDate) out.push(calYmd(d));
+    return out;
+  }
+  const freq     = dateCfg.frequency || 'monthly';
+  const interval = dateCfg.interval || 1;
+  const anchorStr = schedule.next_date || dateCfg.start || dateCfg.startDate;
+  if (!anchorStr) return out;
+  let cursor = calParseLocalNoon(anchorStr);
+  let iter = 0;
+  // Walk backward to at/just-before the window start
+  while (cursor > fromDate && iter < 20000) { cursor = calStepDate(cursor, freq, -interval); iter++; }
+  // Walk forward, collecting occurrences in-window
+  iter = 0;
+  while (cursor <= toDate && iter < 20000) {
+    if (cursor >= fromDate) out.push(calYmd(cursor));
+    cursor = calStepDate(cursor, freq, interval);
+    iter++;
+  }
+  return out;
+}
+
 async function loadCurrentMortgageData() {
   const resp = await fetch(`${MORTGAGE_API_URL}/api/data`);
   if (!resp.ok) throw new Error(`Mortgage API GET failed: ${resp.status}`);
@@ -512,6 +562,58 @@ async function main() {
     }
   }
 
+  // ── 4b. Calendar: expand ALL schedules into dated events ──────────────────
+  try {
+    console.log('\n📅 Building calendar of scheduled transactions...');
+    const allSchedules = await actualAPI.getSchedules();
+    // Resolve payee names for nicer labels
+    let payeeName = {};
+    try {
+      const payees = await actualAPI.getPayees();
+      (payees || []).forEach(p => { payeeName[p.id] = p.name; });
+    } catch(_) {}
+    // Resolve account names
+    let accountName = {};
+    try {
+      const accts = await actualAPI.getAccounts();
+      (accts || []).forEach(a => { accountName[a.id] = a.name; });
+    } catch(_) {}
+
+    // Window: from 1 month ago to 13 months ahead
+    const now = new Date();
+    const fromDate = new Date(now.getFullYear(), now.getMonth() - 1, 1, 12, 0, 0, 0);
+    const toDate   = new Date(now.getFullYear(), now.getMonth() + 13, 0, 12, 0, 0, 0);
+
+    const events = [];
+    for (const s of (allSchedules || [])) {
+      if (s.completed || s.tombstone) continue;
+      const amountCents = s._amount != null ? s._amount : (s.amount || 0);
+      const payee = payeeName[s._payee || s.payee] || '';
+      const acct  = accountName[s._account || s.account] || '';
+      const dates = expandSchedule(s, fromDate, toDate);
+      for (const d of dates) {
+        events.push({
+          date: d,
+          name: s.name || payee || 'Scheduled transaction',
+          payee,
+          account: acct,
+          amount: Math.round((amountCents/100) * 100) / 100
+        });
+      }
+    }
+    events.sort((a,b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name));
+
+    mortgageData.calendarData = {
+      events,
+      from: calYmd(fromDate),
+      to: calYmd(toDate),
+      syncedAt: localNow + ' (' + TZ + ')'
+    };
+    console.log(`  ✓ ${events.length} scheduled event(s) across ${allSchedules?.length || 0} schedule(s)`);
+  } catch(e) {
+    console.warn('\n⚠  Calendar build failed:', e.message);
+  }
+
   // ── 5. Close Actual connection (everything read) ──────────────────────────
   await actualAPI.shutdown();
   console.log('\n✓ Actual Budget connection closed');
@@ -602,7 +704,8 @@ async function main() {
       log,
       reconcile:    mortgageData.reconcile || [],
       propValueLog: mortgageData.propValueLog || [],
-      fundingData:  mortgageData.fundingData || null
+      fundingData:  mortgageData.fundingData || null,
+      calendarData: mortgageData.calendarData || null
     });
     console.log('✓ Mortgage tracker updated successfully');
 

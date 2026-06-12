@@ -237,6 +237,29 @@ html,body{min-height:100%;background:var(--bg);color:var(--text);font-family:-ap
 .bnav-btn.active{ color:var(--green); border-top-color:var(--green); }
 .bnav-icon{ font-size:18px; line-height:1; }
 
+/* ─── Calendar ─── */
+.cal-wrap{ border:1px solid var(--border); border-radius:var(--radius); overflow:hidden }
+.cal-head{ display:grid; grid-template-columns:repeat(7,1fr); background:var(--surface2) }
+.cal-dow{ padding:6px 4px; text-align:center; font-size:11px; font-weight:600; color:var(--muted); border-bottom:1px solid var(--border) }
+.cal-body{ display:grid; grid-template-columns:repeat(7,1fr) }
+.cal-cell{ min-height:92px; border-right:1px solid var(--border); border-bottom:1px solid var(--border); padding:4px; display:flex; flex-direction:column; gap:2px; position:relative; overflow:hidden }
+.cal-cell:nth-child(7n){ border-right:none }
+.cal-blank{ background:var(--surface2); opacity:.4 }
+.cal-today{ background:rgba(76,175,80,0.08); box-shadow:inset 0 0 0 2px var(--green) }
+.cal-daynum{ font-size:11px; font-weight:600; color:var(--muted) }
+.cal-today .cal-daynum{ color:var(--green) }
+.cal-ev{ display:flex; justify-content:space-between; gap:4px; font-size:10px; line-height:1.25; background:var(--surface2); border-radius:4px; padding:1px 4px }
+.cal-ev-name{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1 }
+.cal-ev-amt{ white-space:nowrap; font-weight:500 }
+.cal-ev-more{ font-size:10px; color:var(--muted); padding-left:4px }
+.cal-day-total{ margin-top:auto; font-size:10px; font-weight:600; text-align:right; color:var(--text); border-top:1px dashed var(--border); padding-top:1px }
+@media(max-width:768px){
+  .cal-cell{ min-height:64px; padding:2px }
+  .cal-ev{ font-size:9px; padding:1px 2px }
+  .cal-ev-amt{ display:none }
+  .cal-day-total{ font-size:9px }
+}
+
 @media(max-width:768px){
 
   /* Show bottom nav, hide top nav */
@@ -377,6 +400,7 @@ html,body{min-height:100%;background:var(--bg);color:var(--text);font-family:-ap
   <button class="nav-tab" onclick="showPage('reconcile')">Reconcile</button>
   <button class="nav-tab" onclick="showPage('tools')">Tools</button>
   <button class="nav-tab" onclick="showPage('funding')">Funding</button>
+  <button class="nav-tab" onclick="showPage('calendar')">Calendar</button>
 </div>
 
 <!-- BOTTOM NAV (mobile only) -->
@@ -405,6 +429,9 @@ html,body{min-height:100%;background:var(--bg);color:var(--text);font-family:-ap
     </button>
     <button class="bnav-btn" id="bnav-funding" onclick="showPage('funding')">
       <span class="bnav-icon">💰</span>Funding
+    </button>
+    <button class="bnav-btn" id="bnav-calendar" onclick="showPage('calendar')">
+      <span class="bnav-icon">🗓️</span>Calendar
     </button>
   </div>
 </nav>
@@ -547,6 +574,33 @@ html,body{min-height:100%;background:var(--bg);color:var(--text);font-family:-ap
     <div id="fund-synced-at" style="font-size:11px;color:var(--muted);margin-top:10px"></div>
   </div>
 
+</div>
+
+<!-- CALENDAR -->
+<div class="page" id="page-calendar">
+  <div class="card">
+    <div class="card-title"><span>🗓️</span> Scheduled transactions</div>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px">
+      <button class="btn" id="cal-prev" onclick="calShiftMonth(-1)">‹ Prev</button>
+      <div id="cal-month-label" style="font-weight:600;font-size:16px;min-width:160px;text-align:center"></div>
+      <button class="btn" id="cal-next" onclick="calShiftMonth(1)">Next ›</button>
+      <button class="btn" id="cal-today" onclick="calGoToday()" style="margin-left:auto">Today</button>
+    </div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:12px">
+      All scheduled transactions from Actual Budget. Pulled on each sync — press <strong>Sync now</strong> on the Funding page to refresh.
+    </div>
+    <div id="cal-waiting" class="card" style="display:none;background:var(--surface2)">
+      <div style="font-size:13px;color:var(--muted);padding:6px 0">
+        ⏳ No calendar data yet. Run a sync (Funding page → <strong>Sync now</strong>) to load your scheduled transactions.
+      </div>
+    </div>
+    <div id="cal-grid"></div>
+    <div id="cal-synced-at" style="font-size:11px;color:var(--muted);margin-top:10px"></div>
+  </div>
+  <div class="card">
+    <div class="card-title"><span>📋</span> Upcoming — next 60 days</div>
+    <div id="cal-upcoming"></div>
+  </div>
 </div>
 
 <!-- TOOLS -->
@@ -881,6 +935,8 @@ let settings = {...defaultSettings};
 let logEntries = [];
 let propValueLog = [];
 let fundingData = { group:'', targetMonth:'', targetAmount:0, fundedAmount:0, log:[] }; // [{id, date, value, note}]
+let calendarData = null;          // { events:[{date,name,payee,account,amount}], from, to, syncedAt }
+let calViewYear = null, calViewMonth = null;  // month currently shown (0-based month)
 let currentLogType = 'offset';
 let balChartInst = null, dailyChartInst = null, histChartInst = null, equityChartInst = null;
 
@@ -900,7 +956,7 @@ function showPage(id){
   if(bnavBtn) bnavBtn.classList.add('active');
   document.getElementById('page-'+id).classList.add('active');
   const tabs=[...document.querySelectorAll('.nav-tab')];
-  const names=['dashboard','settings','log','schedule','history','reconcile','tools','funding'];
+  const names=['dashboard','settings','log','schedule','history','reconcile','tools','funding','calendar'];
   const i=names.indexOf(id);
   if(i>=0) tabs[i].classList.add('active');
   if(id==='dashboard') recalc();
@@ -909,6 +965,7 @@ function showPage(id){
   if(id==='reconcile') renderReconcilePage();
   if(id==='tools') renderTools();
   if(id==='funding') renderFundingPage();
+  if(id==='calendar') renderCalendar();
   if(id==='settings'){ const pvd=document.getElementById('pv-date'); if(pvd&&!pvd.value) pvd.value=today(); }
 }
 
@@ -2825,6 +2882,125 @@ function exportCSV(type){
 }
 
 
+/* ─── Scheduled Transactions Calendar ─── */
+
+function calFmtMoney(n){
+  const v = Math.abs(n);
+  return (n < 0 ? '-' : '') + '$' + v.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+
+function calShiftMonth(delta){
+  if(calViewYear == null){ calGoToday(); }
+  calViewMonth += delta;
+  while(calViewMonth < 0){ calViewMonth += 12; calViewYear--; }
+  while(calViewMonth > 11){ calViewMonth -= 12; calViewYear++; }
+  renderCalendar();
+}
+function calGoToday(){
+  const n = new Date();
+  calViewYear = n.getFullYear();
+  calViewMonth = n.getMonth();
+  renderCalendar();
+}
+
+function renderCalendar(){
+  const grid    = document.getElementById('cal-grid');
+  const waiting = document.getElementById('cal-waiting');
+  const label   = document.getElementById('cal-month-label');
+  const synced  = document.getElementById('cal-synced-at');
+  const upcoming= document.getElementById('cal-upcoming');
+  if(!grid) return;
+
+  if(calViewYear == null){ const n=new Date(); calViewYear=n.getFullYear(); calViewMonth=n.getMonth(); }
+
+  const events = (calendarData && Array.isArray(calendarData.events)) ? calendarData.events : null;
+  if(!events || !events.length){
+    if(waiting) waiting.style.display='';
+    grid.innerHTML='';
+    if(upcoming) upcoming.innerHTML='<div style="font-size:13px;color:var(--muted)">No scheduled transactions loaded yet.</div>';
+    if(label) label.textContent='';
+    if(synced) synced.textContent='';
+    return;
+  }
+  if(waiting) waiting.style.display='none';
+
+  // Group events by date for quick lookup
+  const byDate = {};
+  for(const e of events){ (byDate[e.date] = byDate[e.date] || []).push(e); }
+
+  const monthNames=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  if(label) label.textContent = `${monthNames[calViewMonth]} ${calViewYear}`;
+
+  // Build month grid (weeks start Monday)
+  const first = new Date(calViewYear, calViewMonth, 1);
+  const daysInMonth = new Date(calViewYear, calViewMonth+1, 0).getDate();
+  let startDow = first.getDay();           // 0=Sun..6=Sat
+  startDow = (startDow + 6) % 7;           // shift so Monday=0
+  const todayStr = (()=>{ const n=new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(n.getDate()).padStart(2,'0')}`; })();
+
+  const dow=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  let html='<div class="cal-wrap"><div class="cal-head">';
+  for(const d of dow) html += `<div class="cal-dow">${d}</div>`;
+  html += '</div><div class="cal-body">';
+
+  // Leading blanks
+  for(let i=0;i<startDow;i++) html += '<div class="cal-cell cal-blank"></div>';
+
+  for(let day=1; day<=daysInMonth; day++){
+    const ds = `${calViewYear}-${String(calViewMonth+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+    const evs = byDate[ds] || [];
+    const isToday = ds === todayStr;
+    let cell = `<div class="cal-cell${isToday?' cal-today':''}">`;
+    cell += `<div class="cal-daynum">${day}</div>`;
+    if(evs.length){
+      const dayTotal = evs.reduce((a,b)=>a+(b.amount||0),0);
+      for(const e of evs.slice(0,4)){
+        const neg = (e.amount||0) < 0;
+        cell += `<div class="cal-ev" title="${(e.name||'').replace(/"/g,'')} ${calFmtMoney(e.amount)}">`
+              + `<span class="cal-ev-name">${e.name||''}</span>`
+              + `<span class="cal-ev-amt" style="color:${neg?'var(--red)':'var(--green-mid)'}">${calFmtMoney(e.amount)}</span>`
+              + `</div>`;
+      }
+      if(evs.length>4) cell += `<div class="cal-ev-more">+${evs.length-4} more</div>`;
+      cell += `<div class="cal-day-total">${calFmtMoney(dayTotal)}</div>`;
+    }
+    cell += '</div>';
+    html += cell;
+  }
+  html += '</div></div>';
+  grid.innerHTML = html;
+
+  if(synced && calendarData.syncedAt) synced.textContent = 'Last synced: ' + calendarData.syncedAt;
+
+  // Upcoming list — next 60 days from today
+  if(upcoming){
+    const now = new Date(); now.setHours(0,0,0,0);
+    const horizon = new Date(now); horizon.setDate(horizon.getDate()+60);
+    const upc = events.filter(e=>{
+      const d = new Date(e.date+'T12:00:00');
+      return d>=now && d<=horizon;
+    });
+    if(!upc.length){
+      upcoming.innerHTML='<div style="font-size:13px;color:var(--muted)">Nothing scheduled in the next 60 days.</div>';
+    } else {
+      const rows = upc.map(e=>{
+        const d = new Date(e.date+'T12:00:00');
+        const dlabel = d.toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short'});
+        const neg=(e.amount||0)<0;
+        return `<tr>`
+          +`<td style="white-space:nowrap;color:var(--muted)">${dlabel}</td>`
+          +`<td>${e.name||''}</td>`
+          +`<td style="text-align:right;font-weight:500;color:${neg?'var(--red)':'var(--green-mid)'}">${calFmtMoney(e.amount)}</td>`
+          +`</tr>`;
+      }).join('');
+      upcoming.innerHTML = `<div class="tbl-wrap"><table class="tbl"><thead><tr>`
+        +`<th>Date</th><th>Transaction</th><th style="text-align:right">Amount</th>`
+        +`</tr></thead><tbody>${rows}</tbody></table></div>`;
+    }
+  }
+}
+
+
 /* ─── Budget Funding Tracker ─── */
 
 function renderFundingPage(){
@@ -2903,6 +3079,7 @@ async function triggerSync(){
               const data = await API.load();
               if(data){
                 if(data.fundingData) fundingData = {...{group:'',targetMonth:'',breakdown:null}, ...data.fundingData};
+                if(data.calendarData) calendarData = data.calendarData;
                 if(data.settings) settings = data.settings;
                 if(data.log) logEntries = data.log;
                 if(data.reconcile) reconcileEntries = data.reconcile;
@@ -3140,6 +3317,7 @@ async function init(){
     if(data.reconcile)     reconcileEntries = data.reconcile;
     if(data.propValueLog)  propValueLog     = data.propValueLog;
     if(data.fundingData)   fundingData      = {...{group:'',targetMonth:'',targetAmount:0,fundedAmount:0,log:[]}, ...data.fundingData};
+    if(data.calendarData)  calendarData     = data.calendarData;
   }
   // Restore dashboard
   el.innerHTML = `
@@ -3227,10 +3405,15 @@ async function reloadFromServer(){
     if(data.log)          logEntries       = data.log;
     if(data.reconcile)    reconcileEntries = data.reconcile;
     if(data.propValueLog) propValueLog     = data.propValueLog;
+    if(data.fundingData)  fundingData      = {...{group:'',targetMonth:'',targetAmount:0,fundedAmount:0,log:[]}, ...data.fundingData};
+    if(data.calendarData) calendarData     = data.calendarData;
     loadSettingsForm();
     renderLogList();
     recalc();
     histData = null;
+    // Refresh whichever data-driven page is currently visible
+    if(document.getElementById('page-calendar')?.classList.contains('active')) renderCalendar();
+    if(document.getElementById('page-funding')?.classList.contains('active')) renderFundingPage();
     showSyncIndicator('updated');
     console.log('Live update: data reloaded from server');
   }catch(e){

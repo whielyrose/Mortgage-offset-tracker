@@ -25,7 +25,7 @@ _sse_clients: list[asyncio.Queue] = []
 
 def read_data() -> dict:
     if not os.path.exists(DATA_FILE):
-        return {"settings": None, "log": [], "reconcile": [], "propValueLog": [], "fundingData": None}
+        return {"settings": None, "log": [], "reconcile": [], "propValueLog": [], "fundingData": None, "calendarData": None}
     with open(DATA_FILE, "r") as f:
         return json.load(f)
 
@@ -54,6 +54,7 @@ class SavePayload(BaseModel):
     reconcile: list = []
     propValueLog: list = []
     fundingData: Any = None
+    calendarData: Any = None
 
 
 @app.get("/api/data")
@@ -64,12 +65,17 @@ def get_data():
 @app.post("/api/data")
 async def save_data(payload: SavePayload):
     try:
+        # Preserve calendarData if the caller didn't include it (e.g. the
+        # frontend saving settings shouldn't wipe the sync-built calendar).
+        existing = read_data()
+        calendar = payload.calendarData if payload.calendarData is not None else existing.get("calendarData")
         write_data({
             "settings": payload.settings,
             "log": payload.log,
             "reconcile": payload.reconcile,
             "propValueLog": payload.propValueLog,
-            "fundingData": payload.fundingData
+            "fundingData": payload.fundingData,
+            "calendarData": calendar
         })
         return {"ok": True}
     except Exception as e:

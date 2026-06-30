@@ -165,12 +165,13 @@ function calcMonthInterest(monthStr, mortgageData) {
   const monthStart = `${yearNum}-${String(monthNum + 1).padStart(2,'0')}-01`;
   let runningBalance = parseFloat(settings.balance) || 0;
   const paymentLogs = logEntries
-    .filter(e => (e.type === 'repayment' || e.type === 'extra' || e.type === 'interest-charge') && e.date < monthStart)
+    .filter(e => (e.type === 'repayment' || e.type === 'extra' || e.type === 'interest-charge' || e.type === 'fee') && e.date < monthStart)
     .sort((a, b) => a.date.localeCompare(b.date));
   paymentLogs.forEach(p => {
     const amt = parseFloat(p.amount || 0);
     if (p.type === 'repayment' || p.type === 'extra') runningBalance = Math.max(0, runningBalance - amt);
     else if (p.type === 'interest-charge') runningBalance = runningBalance + amt;
+    else if (p.type === 'fee') runningBalance = (p.direction === 'decrease') ? Math.max(0, runningBalance - amt) : runningBalance + amt;
   });
 
   let totalInterest = 0;
@@ -180,11 +181,12 @@ function calcMonthInterest(monthStr, mortgageData) {
 
     // Apply any payments on this day
     logEntries
-      .filter(e => e.date === dateStr && (e.type === 'repayment' || e.type === 'extra' || e.type === 'interest-charge'))
+      .filter(e => e.date === dateStr && (e.type === 'repayment' || e.type === 'extra' || e.type === 'interest-charge' || e.type === 'fee'))
       .forEach(p => {
         const amt = parseFloat(p.amount || 0);
         if (p.type === 'repayment' || p.type === 'extra') runningBalance = Math.max(0, runningBalance - amt);
         else if (p.type === 'interest-charge') runningBalance = runningBalance + amt;
+        else if (p.type === 'fee') runningBalance = (p.direction === 'decrease') ? Math.max(0, runningBalance - amt) : runningBalance + amt;
       });
 
     // Effective rate on this day

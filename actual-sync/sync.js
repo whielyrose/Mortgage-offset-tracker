@@ -285,6 +285,33 @@ async function main() {
   const totalDollars = totalCents / 100;
   console.log(`\n  ${'TOTAL OFFSET'.padEnd(35)} ${fmtMoney(totalDollars)}`);
 
+  // ── 3b. Read mortgage outstanding balance from off-budget account ──────────
+  // Used below (Option B) to reconcile the tracker's calculated balance against
+  // the real loan balance by writing a fee/adjustment entry for any difference.
+  let mortgageActualBalance = null;   // positive dollars, or null if not found
+  let mortgageAcctName = null;
+  try {
+    const norm = s => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    const stripEmoji = s => norm(s).replace(/[^\p{L}\p{N} ]/gu, '').replace(/\s+/g, ' ').trim();
+    const TARGET_EXACT = norm('🏡 Mortgage Beyond Bank');
+    const TARGET_LOOSE = stripEmoji('Mortgage Beyond Bank');
+
+    let mAcct = accounts.find(a => norm(a.name) === TARGET_EXACT);
+    if (!mAcct) mAcct = accounts.find(a => stripEmoji(a.name) === TARGET_LOOSE);
+
+    if (mAcct) {
+      const mtx = await actualAPI.getTransactions(mAcct.id);
+      const mCents = mtx.reduce((sum, t) => sum + (t.amount || 0), 0);
+      mortgageActualBalance = Math.abs(mCents) / 100;   // loan is negative in Actual → positive
+      mortgageAcctName = mAcct.name;
+      console.log(`\n🏡 Mortgage balance from "${mAcct.name}": ${fmtMoney(mortgageActualBalance)} (outstanding)`);
+    } else {
+      console.warn('\n⚠  Could not find off-budget account "Mortgage Beyond Bank" — skipping balance reconciliation');
+    }
+  } catch(e) {
+    console.warn('\n⚠  Mortgage balance read failed:', e.message);
+  }
+
   // ── 4. Funding analysis (same connection) ─────────────────────────────────
   // "Needed" per category = the goal Actual computes for the target month from
   // schedules/templates — the figure shown when hovering the balance column.
@@ -691,6 +718,51 @@ async function main() {
     console.log(`\n💰 Interest charge posted for ${monthLabel}:`);
     console.log(`   Date:   ${chargeDateStr}`);
     console.log(`   Amount: ${fmtMoney(estimatedInterest)}`);
+  }
+
+  // ── 7b. Reconcile calculated balance against real mortgage balance ────────
+  // Option B: compare the tracker's calculated outstanding balance to the real
+  // balance read from Actual, and write a single auto-reconciliation fee entry
+  // for the difference. Runs AFTER the interest charge so it reconciles against
+  // the final calculated balance. The entry is idempotent (upserted, keyed by
+  // note+date) and is itself excluded from the calculation, so repeated syncs
+  // converge rather than stacking corrections.
+  if (mortgageActualBalance != null && mortgageData.settings && mortgageData.settings.balance != null) {
+    const RECON_NOTE = 'auto-reconciled to Actual mortgage balance';
+
+    const startBal = parseFloat(mortgageData.settings.balance) || 0;
+    let calcBal = startBal;
+    log
+      .filter(e => (e.type === 'repayment' || e.type === 'extra' || e.type === 'interest-charge' || e.type === 'fee')
+                   && !(e.type === 'fee' && e.note === RECON_NOTE))
+      .sort((a, b) => (a.date || '').localeCompare(b.date || ''))
+      .forEach(e => {
+        const amt = parseFloat(e.amount || 0);
+        if (e.type === 'repayment' || e.type === 'extra') calcBal = Math.max(0, calcBal - amt);
+        else if (e.type === 'interest-charge') calcBal = calcBal + amt;
+        else if (e.type === 'fee') calcBal = (e.direction === 'decrease') ? Math.max(0, calcBal - amt) : calcBal + amt;
+      });
+
+    const diff = Math.round((mortgageActualBalance - calcBal) * 100) / 100;  // +ve: actual higher → increase
+    const reconIdx = log.findIndex(e => e.type === 'fee' && e.note === RECON_NOTE && e.date === today);
+
+    console.log(`\n🔁 Reconciliation: calculated ${fmtMoney(calcBal)} vs actual ${fmtMoney(mortgageActualBalance)} → diff ${fmtMoney(diff)}`);
+
+    if (Math.abs(diff) < 0.005) {
+      if (reconIdx >= 0) { log.splice(reconIdx, 1); console.log('   Balances match — removed stale reconciliation entry'); }
+      else console.log('   Balances match — no adjustment needed');
+    } else {
+      const reconEntry = {
+        id: reconIdx >= 0 ? log[reconIdx].id : Date.now() + 1,
+        type: 'fee',
+        date: today,
+        amount: Math.abs(diff),
+        direction: diff > 0 ? 'increase' : 'decrease',
+        note: RECON_NOTE
+      };
+      if (reconIdx >= 0) { log[reconIdx] = reconEntry; console.log(`   ♻  Updated reconciliation adjustment: ${diff>0?'+':'−'}${fmtMoney(Math.abs(diff))}`); }
+      else { log.unshift(reconEntry); console.log(`   ➕ Added reconciliation adjustment: ${diff>0?'+':'−'}${fmtMoney(Math.abs(diff))}`); }
+    }
   }
 
   // ── 8. Single POST with everything ─────────────────────────────────────────

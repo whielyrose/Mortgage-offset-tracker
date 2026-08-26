@@ -1271,9 +1271,11 @@ function renderLogList(){
       else if(e.type==='interest-charge') detail=`<span style="color:var(--red)">${fmt(e.amount)} interest charged</span>${e.note&&e.note.includes('auto-calculated')?'<span style="font-size:10px;background:var(--green-light);color:var(--green);border-radius:4px;padding:1px 5px;margin-left:4px">auto</span>':''}`;
       else if(e.type==='fee'){
         const dec=e.direction==='decrease';
-        detail=`<span style="color:${dec?'var(--green-mid)':'var(--red)'}">${dec?'−':'+'}${fmt(e.amount)} ${dec?'credit to balance':'added to balance'}</span>`;
+        const isRecon = e.note==='auto-reconciled to Actual mortgage balance';
+        detail=`<span style="color:${dec?'var(--green-mid)':'var(--red)'}">${dec?'−':'+'}${fmt(e.amount)} ${dec?'credit to balance':'added to balance'}</span>`
+          + (isRecon?'<span style="font-size:10px;background:var(--blue-light,#E6F1FB);color:var(--blue,#185FA5);border-radius:4px;padding:1px 5px;margin-left:4px">auto-reconciled</span>':'');
       }
-      const typeLabel = e.type==='fee' ? 'fee / adjustment' : e.type;
+      const typeLabel = e.type==='fee' ? (e.note==='auto-reconciled to Actual mortgage balance' ? 'reconciliation' : 'fee / adjustment') : e.type;
       return `<tr>
         <td><span class="date-badge">${e.date}</span></td>
         <td>${icons[e.type]||''} ${typeLabel}</td>
